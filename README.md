@@ -2,6 +2,13 @@
 ### AI Cloud Deployment Agent · AI Infrastructure-as-Code Agent
 ### One Agent That Rules Them All.
 
+<p align="center">
+  <img src="docs/assets/the-carpenter-home.svg" alt="The Carpenter minimalist white prompt-first AI IaC Agent interface" width="100%" />
+</p>
+
+<p align="center"><em>Prompt-first by design: discover, design, compile, approve and deploy — without asking users to author IaC.</em></p>
+
+
 **The Carpenter is an AI Agent that turns natural-language infrastructure goals into deployed cloud environments.** It discovers the user's infrastructure, understands the desired outcome, designs the target architecture, generates the required Infrastructure-as-Code (IaC), validates it, onboards the selected providers, provisions resources and verifies the result.
 
 Users describe *what they want*. They do not have to author YAML, Terraform, Ansible, cloud-init or provider API payloads. The Carpenter generates and manages those implementation artifacts internally, then applies them through its distributed Python FaaS workers.
