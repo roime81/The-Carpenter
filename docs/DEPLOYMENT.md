@@ -2,7 +2,7 @@
 
 ## Execution model
 
-The Carpenter control plane never calls hypervisor, Kubernetes or GAMGEE provider APIs during deployment execution. It validates the approved plan and enqueues versioned Python functions on selected data-plane workers.
+The Carpenter is an AI Cloud Deployment Agent and AI IaC Agent. Users state the desired outcome in natural language; they do not write the YAML or provider payloads for supported resources. The AI extracts bounded intent, and the Python IaC compiler emits a deterministic desired-state resource graph plus provider artifacts. The control plane validates the bundle and never calls hypervisor, Kubernetes or GAMGEE provider APIs during deployment execution. It enqueues versioned Python functions on selected data-plane workers.
 
 The deployment lifecycle is:
 
@@ -14,7 +14,7 @@ The deployment lifecycle is:
 6. Workers execute provider APIs using credentials configured locally on those workers.
 7. The control plane reconciles deployment status from linked job results.
 
-The deployment API returns `queued` after dispatch. It does not claim that infrastructure has been created until all required jobs report success.
+The generated IaC can be inspected at `GET /api/v1/deployments/{deployment_id}/iac`. Each artifact has a SHA-256 hash, and the resource graph has a canonical fingerprint. The deployment API returns `queued` after dispatch. It does not claim that infrastructure has been created until all required jobs report success.
 
 ## Worker-side provider configuration
 
@@ -91,6 +91,24 @@ A PaaS request requires:
 The worker uses Kubernetes server-side apply to create/update a generated Deployment and ClusterIP Service. The Kubernetes cluster and namespace must already exist. The service account should be restricted to the intended namespace and only the required Deployment and Service resources.
 
 This first version does not bootstrap Kubernetes from bare metal, build a container registry, configure ingress/TLS, secrets, persistent volumes, HPA, service mesh or storage classes.
+
+## IaC generation and review
+
+The plan compiler generates an internal `carpenter.iac/v1` bundle:
+- Proxmox VM resource definitions and a Carpenter Proxmox plan.
+- Kubernetes Deployment and ClusterIP Service manifests.
+- A GAMGEE bootstrap/expand plan.
+
+The bundle contains no provider secrets or executable scripts. The agent validates resource kinds, YAML parsing, artifact hashes and the resource-graph fingerprint before dispatch.
+
+Retrieve generated artifacts:
+
+```bash
+curl https://carpenter.example.com/api/v1/deployments/DEPLOYMENT_ID/iac \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
+Change the natural-language requirements and generate a new plan if the desired state changes. Editing generated YAML directly is not the current supported workflow.
 
 ## Create, approve and dispatch a deployment
 
