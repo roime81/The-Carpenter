@@ -86,6 +86,7 @@ def initialise_store() -> None:
                 lease_until TEXT,
                 lease_token TEXT,
                 worker_id TEXT,
+                target_worker_id TEXT,
                 result_json TEXT,
                 error TEXT,
                 idempotency_key TEXT,
@@ -253,6 +254,7 @@ def enqueue_job(
     max_attempts: int = 3,
     priority: int = 100,
     idempotency_key: str | None = None,
+    target_worker_id: str | None = None,
 ) -> dict[str, Any]:
     now = iso_now()
     job_id = str(uuid.uuid4())
@@ -278,12 +280,12 @@ def enqueue_job(
             INSERT INTO faas_jobs(
                 job_id, function_name, function_version, payload_json, status,
                 priority, attempt, max_attempts, available_at, idempotency_key,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?, ?, ?)
+                target_worker_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, function_name, function_version, json.dumps(payload), priority,
-                max(1, min(max_attempts, 20)), now, idempotency_key, now, now,
+                max(1, min(max_attempts, 20)), now, idempotency_key, target_worker_id, now, now,
             ),
         )
         row = connection.execute("SELECT * FROM faas_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -349,6 +351,7 @@ def claim_job(worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
             (
                 candidate for candidate in candidates
                 if capabilities.get(candidate["function_name"]) == candidate["function_version"]
+                and candidate["target_worker_id"] in (None, worker_id)
             ),
             None,
         )
