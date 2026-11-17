@@ -64,7 +64,7 @@ The web application, API, orchestration, node agent, worker handlers and FaaS fu
 
 - User-owned physical servers, VMs and hypervisors.
 - Storage, network and workload runtimes.
-- Worker-side read-only discovery/metrics functions.
+- Worker-side read-only discovery/metrics functions and approved provider mutations.
 - GAMGEE or independent cloud services chosen by the user.
 - Application and infrastructure telemetry.
 
@@ -80,7 +80,7 @@ The control plane stores versioned function registrations and jobs in SQLite. Wo
 
 A worker can claim only a function version it advertises in its heartbeat. Expired leases are re-queued until the attempt limit, then moved to the dead-letter state. Results are accepted only from the worker holding the active lease token before expiry.
 
-The delivery guarantee is **at-least-once**, not exactly-once. All future mutating functions must be idempotent or provide compensation. See [DISTRIBUTED-FAAS.md](DISTRIBUTED-FAAS.md).
+The delivery guarantee is **at-least-once**, not exactly-once. Provider deployments are also FaaS functions: Proxmox VM creation, Kubernetes apply and the signed GAMGEE installer handoff run on selected data-plane workers. Provider credentials remain on those workers. All mutating functions must be idempotent or provide compensation. See [DISTRIBUTED-FAAS.md](DISTRIBUTED-FAAS.md).
 
 ## Discovery and assessment
 
