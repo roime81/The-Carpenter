@@ -29,6 +29,7 @@ from app.deployment_store import (
     reconcile_status as reconcile_deployment_status,
 )
 from app.deployment_engine import DeploymentEngine
+from app.iac_engine import validate_iac_bundle
 from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -329,6 +330,31 @@ def get_deployment(
     if not record:
         raise HTTPException(status_code=404, detail="Deployment plan not found")
     return record
+
+
+@app.get("/api/v1/deployments/{deployment_id}/iac")
+def get_deployment_iac(
+    deployment_id: str,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    record = get_deployment_record(deployment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    bundle = record["plan"].get("iac_bundle")
+    if not isinstance(bundle, dict):
+        raise HTTPException(status_code=404, detail="Generated IaC bundle not found")
+    try:
+        validation = validate_iac_bundle(bundle)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=f"Stored IaC validation failed: {exc}") from exc
+    return {
+        "deployment_id": deployment_id,
+        "fingerprint": bundle["fingerprint"],
+        "validation": validation,
+        "resource_graph": bundle["resources"],
+        "artifacts": bundle["artifacts"],
+    }
 
 
 @app.post("/api/v1/deployments/{deployment_id}/approve")
