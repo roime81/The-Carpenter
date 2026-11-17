@@ -35,7 +35,7 @@ from app.operations_engine import assess_high_availability, recommend_action, bu
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
     title="The Carpenter",
-    description="A prompt-driven Python cloud control plane.",
+    description="An AI Cloud Deployment Agent and AI IaC Agent that discovers, compiles, validates and provisions infrastructure through distributed Python workers.",
     version="0.3.0",
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
