@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -11,17 +12,21 @@ from app.config import settings
 logger = logging.getLogger("carpenter.llm")
 
 SYSTEM_PROMPT = """You are the intent parser for The Carpenter, an infrastructure control plane.
-Return JSON only with these optional keys:
-vm_count (integer), destination ("gamgee" or "own_cloud"), service_model ("iaas", "paas", or "hybrid").
-Only extract values the user explicitly stated. Never invent missing values. Do not output commands,
-scripts, shell, function names, credentials, or infrastructure instructions. The backend validates
-all extracted values and is the only component allowed to invoke registered functions."""
+Return JSON only with optional keys:
+vm_count (integer), destination ("gamgee" or "own_cloud"), service_model ("iaas", "paas", or "hybrid"),
+vcpu_per_vm (integer), memory_gb_per_vm (integer), disk_gb_per_vm (integer),
+high_availability (boolean), container_image (string), container_port (integer),
+name (lowercase DNS label), namespace (lowercase DNS label).
+Only extract values the user explicitly stated. Do not infer missing sizing, invent images,
+names, destinations or HA requirements. Do not output commands, scripts, shell, function names,
+credentials, or infrastructure instructions. The backend validates every extracted value and
+is the only component allowed to invoke registered functions."""
 
 
 class ModelGateway:
     """Optional local/open-source or OpenAI-compatible intent extraction.
 
-    The model only extracts constrained conversational slots. It cannot execute tools,
+    The model extracts constrained conversational slots only. It cannot execute tools,
     run code, access credentials, or mutate infrastructure.
     """
 
@@ -87,17 +92,50 @@ class ModelGateway:
         return payload["choices"][0]["message"]["content"]
 
     @staticmethod
-    def _validate(raw: Any) -> dict[str, Any]:
+    def _valid_dns_label(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) <= 63
+            and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", value) is not None
+        )
+
+    @classmethod
+    def _validate(cls, raw: Any) -> dict[str, Any]:
         if not isinstance(raw, dict):
             return {}
         result: dict[str, Any] = {}
-        count = raw.get("vm_count")
-        if isinstance(count, int) and not isinstance(count, bool) and 1 <= count <= 10000:
-            result["vm_count"] = count
-        destination = raw.get("destination")
-        if destination in ("gamgee", "own_cloud"):
-            result["destination"] = destination
-        service_model = raw.get("service_model")
-        if service_model in ("iaas", "paas", "hybrid"):
-            result["service_model"] = service_model
+
+        integer_fields = {
+            "vm_count": (1, 10000),
+            "vcpu_per_vm": (1, 256),
+            "memory_gb_per_vm": (1, 4096),
+            "disk_gb_per_vm": (1, 100000),
+            "container_port": (1, 65535),
+        }
+        for field, (minimum, maximum) in integer_fields.items():
+            value = raw.get(field)
+            if isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= maximum:
+                result[field] = value
+
+        if raw.get("destination") in ("gamgee", "own_cloud"):
+            result["destination"] = raw["destination"]
+        if raw.get("service_model") in ("iaas", "paas", "hybrid"):
+            result["service_model"] = raw["service_model"]
+        if isinstance(raw.get("high_availability"), bool):
+            result["high_availability"] = raw["high_availability"]
+
+        image = raw.get("container_image")
+        if (
+            isinstance(image, str)
+            and 1 <= len(image) <= 512
+            and not any(char.isspace() or ord(char) < 32 for char in image)
+            and not image.startswith("-")
+        ):
+            result["container_image"] = image
+
+        for field in ("name", "namespace"):
+            value = raw.get(field)
+            if cls._valid_dns_label(value):
+                result[field] = value
+
         return result
