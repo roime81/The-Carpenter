@@ -13,6 +13,13 @@
       <div class="brand-mark" aria-hidden="true">C</div>
       <div class="brand-name">{{ app_name }}</div>
       <div class="brand-tagline">AI CLOUD DEPLOYMENT · AI IaC AGENT</div>
+      <div class="identity-bar">
+        <span>Signed in · {{ identity.role | upper }}</span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="logout-button">Sign out</button>
+        </form>
+      </div>
     </header>
 
     <section class="conversation" aria-live="polite">
@@ -33,12 +40,17 @@
     </section>
 
     <section class="composer">
+      {% if can_prompt %}
       <form method="post" action="/prompt">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label class="visually-hidden" for="message">Tell The Carpenter what to build</label>
         <textarea id="message" name="message" rows="1" maxlength="8000"
           placeholder="Describe the cloud, platform or workload you want. No YAML required..." required></textarea>
         <button type="submit" aria-label="Send prompt">↑</button>
       </form>
+      {% else %}
+      <div class="read-only-notice">You are signed in as a viewer. Conversation is read-only; ask an operator to create a plan.</div>
+      {% endif %}
       <div class="composer-foot">
         <span>AI IaC Agent · Python-native FaaS</span>
         <span>{{ agent_count }} online node{% if agent_count != 1 %}s{% endif %}</span>
