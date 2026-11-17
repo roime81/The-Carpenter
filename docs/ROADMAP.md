@@ -10,6 +10,9 @@ This roadmap tracks the five requested engineering programmes. The first impleme
 - [x] Lease tokens, expiry recovery, retry/backoff and dead-letter state.
 - [x] Job idempotency keys and event audit.
 - [x] Built-in node discovery and metrics functions.
+- [x] Dynamic provider capability advertisements from worker-local configuration.
+- [x] Provider deployment functions for Proxmox, Kubernetes and GAMGEE.
+- [x] One Proxmox VM per FaaS job, worker heartbeat during long-running operations and deployment job reconciliation.
 - [ ] Shared PostgreSQL queue and multi-control-plane coordination.
 - [ ] Isolated worker processes/containers and cancellation.
 - [ ] Signed function packages, signature verification and automated rollback.
@@ -41,9 +44,11 @@ This roadmap tracks the five requested engineering programmes. The first impleme
 ## 4. Dual Cloud Deployment Engine — adapter foundation implemented
 
 - [x] Plan → approve → execute lifecycle.
-- [x] GAMGEE signed HTTPS installer adapter contract.
-- [x] Proxmox VE template clone, CPU/RAM configure and VM start adapter.
-- [x] Kubernetes server-side apply Deployment + ClusterIP Service adapter.
+- [x] Plan → approval → distributed FaaS dispatch lifecycle.
+- [x] GAMGEE signed HTTPS installer function contract.
+- [x] Proxmox worker FaaS function for template clone, CPU/RAM configure and VM start.
+- [x] Kubernetes worker FaaS function for server-side apply Deployment + ClusterIP Service.
+- [x] Deployment state reconciled from linked worker jobs.
 - [ ] GAMGEE installer service and versioned bootstrap/upgrade contract.
 - [ ] More hypervisor/cloud adapters (libvirt, OpenStack, public clouds, etc.).
 - [ ] Bare-metal-to-Kubernetes bootstrap for independent PaaS.
