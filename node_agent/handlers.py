@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import shutil
 import socket
 import time
@@ -29,7 +30,7 @@ def _inventory() -> dict[str, Any]:
         "cpu_percent": psutil.cpu_percent(interval=0.2),
         "memory_total_bytes": psutil.virtual_memory().total,
         "memory_available_bytes": psutil.virtual_memory().available,
-        "disk_total_bytes": psutil.disk_usage("/").total,
+        "disk_total_bytes": psutil.disk_usage(os.path.abspath(os.sep)).total,
         "disk_free_bytes": psutil.disk_usage("/").free,
     }
 
