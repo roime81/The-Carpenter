@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -133,36 +134,53 @@ def main() -> None:
     heartbeat_seconds = max(15, int(os.getenv("CARPENTER_HEARTBEAT_SECONDS", "30")))
     poll_seconds = max(1, float(os.getenv("CARPENTER_WORKER_POLL_SECONDS", "2")))
     node = inventory()
-    logger.info("Starting Carpenter worker %s at %s", node["node_id"], base_url)
-    last_heartbeat = 0.0
-    registered = False
+    node_id = node["node_id"]
+    logger.info("Starting Carpenter worker %s at %s", node_id, base_url)
 
-    while True:
-        now = time.monotonic()
-        if now - last_heartbeat >= heartbeat_seconds:
-            last_heartbeat = now
+    stop = threading.Event()
+    registered = threading.Event()
+
+    def heartbeat_loop() -> None:
+        while not stop.is_set():
             try:
-                node = inventory()
-                send_heartbeat(base_url, token, node)
-                registered = True
+                current = inventory()
+                send_heartbeat(base_url, token, current)
+                registered.set()
             except Exception as exc:
-                registered = False
+                registered.clear()
                 logger.warning("Heartbeat failed: %s", exc)
+            if stop.wait(heartbeat_seconds):
+                break
 
-        if not registered:
-            time.sleep(poll_seconds)
-            continue
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_loop,
+        name="carpenter-heartbeat",
+        daemon=True,
+    )
+    heartbeat_thread.start()
 
-        try:
-            job = claim_job(base_url, token, node["node_id"])
-            if job:
-                process_job(base_url, token, node["node_id"], job)
-            else:
+    try:
+        while not stop.is_set():
+            if not registered.is_set():
                 time.sleep(poll_seconds)
-        except Exception as exc:
-            registered = False
-            logger.warning("Worker poll failed; re-registering before further claims: %s", exc)
-            time.sleep(poll_seconds)
+                continue
+            try:
+                job = claim_job(base_url, token, node_id)
+                if job:
+                    # The independent heartbeat thread keeps this worker visible
+                    # while a hypervisor or platform function is running.
+                    process_job(base_url, token, node_id, job)
+                else:
+                    time.sleep(poll_seconds)
+            except Exception as exc:
+                registered.clear()
+                logger.warning("Worker poll failed; waiting for heartbeat recovery: %s", exc)
+                time.sleep(poll_seconds)
+    except KeyboardInterrupt:
+        logger.info("Stopping Carpenter worker")
+    finally:
+        stop.set()
+        heartbeat_thread.join(timeout=heartbeat_seconds + 2)
 
 
 if __name__ == "__main__":
