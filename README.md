@@ -15,6 +15,7 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 - [Principles and architecture](#principles-and-architecture)
 - [Implementation status](#implementation-status)
 - [Quick start](#quick-start)
+- [Authentication and roles](#authentication-and-roles)
 - [Enrol data-plane servers](#enrol-data-plane-servers)
 - [Configure cloud adapters](#configure-cloud-adapters)
 - [Use the deployment lifecycle](#use-the-deployment-lifecycle)
@@ -70,12 +71,13 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 
 | Programme | Implemented in this increment | Still required for production |
 |---|---|---|
-| AI Agent & workflow | Natural-language requirement extraction, session context, discovery orchestration, deployment planning and provider function dispatch | Broader multi-step agent planning, approval-aware conversational execution, task memory and recovery loops |
+| AI Agent & workflow | Natural-language requirement extraction, session context, discovery orchestration, deterministic IaC generation, saved plans, chat-based approval/deploy/status actions and provider function dispatch | OIDC/SAML SSO, individual user identity/federation, longer-running task memory and recovery loops |
 | AI IaC Engine | Deterministic desired-state resource graph, Proxmox/GAMGEE plans, Kubernetes YAML manifests, SHA-256 fingerprint and worker-side validation | More providers, Terraform/OpenTofu generation, dependency graph, drift detection and change/destroy plans |
 | Distributed Native FaaS | Durable SQLite queue, versioned functions, targeted workers, leases, retries/backoff, idempotency and dead-letter state | Shared PostgreSQL queue, isolated workers, signed function packages and multi-tenant quotas |
 | Infrastructure Discovery | Per-node CPU/RAM/disk/OS/network facts, KVM/libvirt/Proxmox detection and targeted read-only probes | Hypervisor API inventory, IOPS/network benchmarks, GPU/NUMA and full failure-domain topology |
 | Intelligent Resource Engine | Per-host placement, CPU/RAM/disk headroom, HA spread and basic capacity forecast | Reservations, workload-aware bin packing, NUMA/GPU/IOPS and cost models |
 | Dual Cloud Deployment | Approved IaC plans dispatch GAMGEE, Proxmox and Kubernetes Python FaaS jobs; status reconciles from worker results | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation and compensation |
+| Web identity and authorisation | Admin/operator/viewer token roles, HMAC-signed expiring sessions, HttpOnly/SameSite cookies, CSRF validation, logout and admin-only chat approval/execution | OIDC/SAML SSO, per-user directory mapping, central session revocation and fine-grained project/tenant policies |
 | Autonomous Operations | Worker metrics, HA assessment, scale recommendations, failover placement and HAProxy config planning | Live SLO/alert pipeline, autonomous policy-bounded remediation, fencing, drain, rollback and recovery |
 
 **IaC principle:** the generated resource graph and YAML are Carpenter-owned artifacts. The user supplies requirements, not manifests. The current compiler supports Proxmox VM plans, Kubernetes Deployment/Service manifests and a GAMGEE bootstrap plan; it does not yet generate general-purpose Terraform/OpenTofu or Ansible projects.
@@ -132,6 +134,39 @@ docker compose down
 ```
 
 The SQLite database is persisted in the `carpenter-data` Docker volume. To remove it as well, run `docker compose down -v` (destructive).
+
+---
+
+## Authentication and roles
+
+The browser console is not anonymous. A user signs in at `/login` with one of the configured web access tokens. The token is checked by the control plane and exchanged for a short-lived signed browser session; the original token is not placed in the browser cookie or conversation.
+
+| Role | Browser access | Infrastructure authority |
+|---|---|---|
+| **Admin** | Full prompt and conversation access | Create plans, inspect IaC, approve and execute deployments |
+| **Operator** | Full prompt and conversation access | Discover the environment and create/revise plans; cannot approve or execute |
+| **Viewer** | Read-only conversation view | Cannot submit prompts or mutate infrastructure |
+
+The admin credential is `CARPENTER_ADMIN_TOKEN`. Optional `CARPENTER_OPERATOR_TOKEN` and `CARPENTER_VIEWER_TOKEN` values enable the other roles. Use different, independently generated values. The existing `CARPENTER_AGENT_ENROLLMENT_TOKEN` remains dedicated to Node Agent authentication and is not a browser role.
+
+Generate independent secrets with:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Set a different generated value for each configured token. Also set `CARPENTER_SESSION_SECRET` to a dedicated random value. When omitted, the control plane falls back to the admin token for session signing; a dedicated value is recommended.
+
+**Browser session controls**
+
+- Sessions are HMAC-SHA256 signed and expire after 12 hours.
+- The authentication cookie is HttpOnly and SameSite=Strict; set `CARPENTER_COOKIE_SECURE=true` when the console is served over HTTPS.
+- The prompt and logout forms include a session-bound CSRF token.
+- The conversation identifier is rotated at login and is separate from the signed authentication cookie.
+- Logout clears the browser cookies. Because sessions are stateless in this release, a copied cookie remains valid until expiry unless the signing secret is rotated.
+- The configured tokens are shared role credentials, not individual user accounts. Audit events distinguish the role principal (for example, `web-admin`) and action source, but do not prove which human used a shared token.
+
+This is built-in token-based RBAC for the current single-control-plane product. OIDC/SAML SSO, corporate directory integration, per-user entitlements, and centrally revocable sessions are not claimed as implemented.
 
 ---
 
@@ -238,9 +273,33 @@ Expose it internally on port 8080.
 
 The Carpenter interprets the request, discovers available provider workers, creates the desired-state resource graph, compiles the Kubernetes YAML internally, validates the bundle and prepares the deployment. You do not need to write or upload YAML.
 
-For supported infrastructure changes, the current release keeps a human approval boundary before FaaS provisioning. Approval is currently performed through the authenticated admin API; conversational approval will follow SSO/RBAC integration. Once authorised, the agent dispatches the generated IaC to provider workers and reconciles job results.
+For supported infrastructure changes, the browser experience now supports the full conversational approval and dispatch sequence. An operator can create and refine a plan; an admin must explicitly approve it before any provider function is queued.
 
-### 1. Create a plan
+### Conversational deployment lifecycle
+
+1. **Describe the outcome.** State the destination, service model, workload, sizing and desired availability in natural language.
+2. **Discover and design.** The agent assesses online enrolled workers, available provider capabilities, CPU/RAM/disk headroom and placement constraints.
+3. **Compile and validate.** The deterministic compiler produces the saved `carpenter.iac/v1` resource graph and provider artifacts. It verifies allow-listed resource kinds, artifact hashes, graph fingerprint and safe YAML parsing.
+4. **Review the plan.** The response displays the deployment ID, full IaC fingerprint, resources, generated artifact filenames, readiness checks and any blockers. No resources have changed.
+5. **Approve.** An admin types `approve` in the same conversation. Approval is attached to that conversation's saved deployment and records the admin role principal and IaC fingerprint in the event log.
+6. **Execute.** The admin types `deploy`, or uses the explicit combined command `approve and deploy`. The Carpenter revalidates the stored IaC bundle, live capacity, placement and provider-worker assignment before dispatching versioned Python FaaS jobs.
+7. **Reconcile.** The user types `status` to see deployment and per-worker job state. A deployment is `succeeded` only after all linked jobs succeed; dead-lettered jobs cause a failed deployment.
+
+The accepted chat action phrases are:
+
+| Prompt | Action |
+|---|---|
+| `approve` | Approve the current saved plan; do not dispatch yet |
+| `deploy` | Execute a plan that is already approved |
+| `approve and deploy` | Approve and immediately dispatch the current saved plan |
+| `status` | Reconcile and display deployment/job status |
+
+These are control commands, not LLM-generated actions. The prompt handler recognises the fixed phrases and calls the same approval/execution functions as the administrative API. The model cannot self-approve, bypass readiness checks, or execute arbitrary code. A viewer cannot submit commands; an operator receives an explicit admin-role denial for approval or execution.
+
+If any readiness check fails, the admin command is refused with the reason. Correct the infrastructure/provider configuration or revise the requirements to create a new plan. A changed placement or worker assignment requires a fresh plan and fresh approval; the previous approval is not silently reused.
+
+### 1. Create a plan through the API (optional)
+
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/deployments/plan \
@@ -283,7 +342,7 @@ curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/execute \
   -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
 ```
 
-Execution is refused unless the stored plan passed its readiness checks and was approved. The execute endpoint returns `queued` with FaaS job IDs; poll `GET /api/v1/deployments/DEPLOYMENT_ID` for linked worker status and results. A deployment becomes `succeeded` only after all linked jobs succeed. Hybrid deployments can partially succeed; compensation/rollback across independent providers is not yet implemented.
+Execution is refused unless the stored plan passed its readiness checks and was approved. The execute endpoint returns `queued` with FaaS job IDs; poll `GET /api/v1/deployments/DEPLOYMENT_ID` for linked worker status and results. The API path and browser chat path call the same approval and execution helpers. A deployment becomes `succeeded` only after all linked jobs succeed. Hybrid deployments can partially succeed; compensation/rollback across independent providers is not yet implemented.
 
 ---
 
@@ -332,6 +391,9 @@ These APIs produce assessments and plans. They do not yet perform autonomous loa
 | Method | Endpoint | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness |
+| GET | `/login` | Web console sign-in |
+| POST | `/login` | Exchange a configured role token for a signed browser session |
+| POST | `/logout` | Clear the authenticated browser session (CSRF protected) |
 | GET | `/api/v1/functions` | Function/version catalogue |
 | GET | `/api/v1/inventory` | Enrolled node inventory (admin) |
 | POST | `/api/v1/agents/heartbeat` | Worker heartbeat |
@@ -379,7 +441,10 @@ GitHub Actions runs the unit suite on pushes to `main` and pull requests.
 This is an early engineering foundation, not a production-ready multi-tenant cloud control plane.
 
 - The node enrollment token is shared across workers in this first increment. Production requires per-node identity, short-lived credentials and mTLS.
-- The browser prompt does not yet include production SSO/RBAC/CSRF controls.
+- Web role tokens are shared credentials, not personal identities. For enterprise use, integrate OIDC/SAML or a trusted identity provider and map individual users/groups to deployment permissions.
+- Stateless browser sessions cannot be individually revoked server-side before expiry. Rotate `CARPENTER_SESSION_SECRET` to invalidate all browser sessions, or add a centrally managed session store for production.
+- Set `CARPENTER_COOKIE_SECURE=true` behind HTTPS. Do not expose the development console over public HTTP.
+- The browser includes token-based admin/operator/viewer RBAC, signed 12-hour sessions and form CSRF validation; OIDC/SAML SSO, individual user identities and central session revocation are not yet implemented.
 - The queue is durable SQLite for a single control-plane instance. Multi-replica deployment needs shared transactional storage and distributed scheduling.
 - Function versions are matched, but worker packages are not yet cryptographically signed or verified.
 - FaaS is at-least-once. Mutating functions need idempotency and compensation.
@@ -412,7 +477,8 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 ├── backend/app/
 │   ├── adapters/              # Provider adapter references
 │   ├── runtime/               # Local Python function runtime
-│   ├── main.py                # Python control-plane API
+│   ├── main.py                # Python control-plane API and chat action routing
+│   ├── web_auth.py             # Signed browser sessions, role credentials and CSRF validation
 │   ├── store.py               # Queue, worker, inventory and deployment store
 │   ├── iac_engine.py          # Deterministic desired-state to IaC compiler
 │   ├── deployment_engine.py   # AI plan and distributed apply coordinator
