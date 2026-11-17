@@ -68,12 +68,10 @@ def _web_identity(request: Request) -> dict[str, Any] | None:
     return read_session(request.cookies.get(COOKIE_NAME))
 
 
-def _conversation_id(request: Request) -> str:
-    candidate = request.cookies.get("carpenter_session", "")
-    try:
-        return str(uuid.UUID(candidate))
-    except (ValueError, TypeError, AttributeError):
-        return str(uuid.uuid4())
+def _conversation_id(identity: dict[str, Any]) -> str:
+    # The conversation ID is a signed session claim; never trust a caller-
+    # controlled, unsigned cookie to select another conversation.
+    return str(identity["conversation_id"])
 
 
 def _approve_saved_plan(deployment_id: str, approved_by: str, source: str) -> dict[str, Any]:
@@ -646,11 +644,8 @@ def login(request: Request, token: str = Form(...)) -> Response:
         COOKIE_NAME, cookie_value, httponly=True, secure=settings.cookie_secure,
         samesite="strict", max_age=SESSION_TTL_SECONDS,
     )
-    # Rotate the browser conversation identifier when a user authenticates.
-    response.set_cookie(
-        "carpenter_session", str(uuid.uuid4()), httponly=True,
-        secure=settings.cookie_secure, samesite="strict", max_age=60 * 60 * 24 * 30,
-    )
+    # Remove the legacy unsigned conversation cookie from older sessions.
+    response.delete_cookie("carpenter_session", httponly=True, secure=settings.cookie_secure, samesite="strict")
     return response
 
 
@@ -673,7 +668,7 @@ def home(request: Request) -> Response:
     identity = _web_identity(request)
     if not identity:
         return RedirectResponse("/login", status_code=303)
-    session_id = _conversation_id(request)
+    session_id = _conversation_id(identity)
     messages = store.list_messages(session_id)
     response = templates.TemplateResponse(
         request=request,
@@ -687,11 +682,6 @@ def home(request: Request) -> Response:
             "can_prompt": identity["role"] in ("operator", "admin"),
         },
     )
-    if request.cookies.get("carpenter_session") != session_id:
-        response.set_cookie(
-            "carpenter_session", session_id, httponly=True,
-            secure=settings.cookie_secure, samesite="strict", max_age=60 * 60 * 24 * 30,
-        )
     return response
 
 
@@ -720,9 +710,4 @@ def prompt(
         answer = orchestrator.respond(session_id, content)
     store.add_message(session_id, "assistant", answer)
     response = RedirectResponse("/", status_code=303)
-    if request.cookies.get("carpenter_session") != session_id:
-        response.set_cookie(
-            "carpenter_session", session_id, httponly=True,
-            secure=settings.cookie_secure, samesite="strict", max_age=60 * 60 * 24 * 30,
-        )
     return response
