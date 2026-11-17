@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -617,7 +617,7 @@ def collect_metrics(
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request) -> HTMLResponse | RedirectResponse:
+def login_page(request: Request) -> Response:
     if _web_identity(request):
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(
@@ -628,7 +628,7 @@ def login_page(request: Request) -> HTMLResponse | RedirectResponse:
 
 
 @app.post("/login", response_class=HTMLResponse)
-def login(request: Request, token: str = Form(...)) -> HTMLResponse | RedirectResponse:
+def login(request: Request, token: str = Form(...)) -> Response:
     issued = issue_session(token)
     if not issued:
         return templates.TemplateResponse(
@@ -669,7 +669,7 @@ def logout(request: Request, csrf_token: str = Form(...)) -> RedirectResponse:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request) -> HTMLResponse | RedirectResponse:
+def home(request: Request) -> Response:
     identity = _web_identity(request)
     if not identity:
         return RedirectResponse("/login", status_code=303)
