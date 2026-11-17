@@ -5,7 +5,7 @@ from typing import Any
 from app import store
 from app.operations_engine import assess_high_availability
 from app.resource_engine import plan_placement
-from app.iac_engine import compile_iac_bundle
+from app.iac_engine import compile_iac_bundle, validate_iac_bundle
 import uuid
 
 
@@ -99,9 +99,11 @@ class DeploymentEngine:
         ha_ready = all(item["ha_ready"] for item in ha_assessments.values()) if ha_assessments else True
         plan_id = deployment_id or str(uuid.uuid4())
         iac_bundle = compile_iac_bundle(plan_id, request, placement, execution_workers)
+        iac_validation = validate_iac_bundle(iac_bundle)
         return {
             "deployment_id": plan_id,
             "iac_bundle": iac_bundle,
+            "iac_validation": iac_validation,
             "destination": destination,
             "service_model": model,
             "requested": request,
@@ -146,8 +148,14 @@ class DeploymentEngine:
         queued_jobs: list[dict[str, Any]] = []
 
         iac_bundle = plan.get("iac_bundle")
-        if not isinstance(iac_bundle, dict) or not iac_bundle.get("validation", {}).get("schema_valid"):
-            raise RuntimeError("A validated internal IaC bundle is required before dispatch.")
+        if not isinstance(iac_bundle, dict) or iac_bundle.get("deployment_id") != deployment_id:
+            raise RuntimeError("A deployment-matched internal IaC bundle is required before dispatch.")
+        try:
+            iac_validation = validate_iac_bundle(iac_bundle)
+        except ValueError as exc:
+            raise RuntimeError(f"Generated IaC validation failed: {exc}") from exc
+        if not iac_validation["valid"]:
+            raise RuntimeError("Generated IaC failed static validation.")
 
         if destination == "gamgee":
             worker_ids = targets["gamgee"]
@@ -231,4 +239,6 @@ class DeploymentEngine:
             "execution_status": "queued",
             "queued_jobs": queued_jobs,
             "delivery_semantics": "at-least-once; worker functions must remain idempotent",
+            "iac_fingerprint": iac_bundle["fingerprint"],
+            "iac_validation": iac_validation,
         }
