@@ -42,6 +42,25 @@ class FunctionTests(unittest.TestCase):
         result = recommend_scaling({"cpu_percent": 90, "memory_percent": 45})
         self.assertEqual(result["recommendation"], "scale_up")
 
+    def test_llm_accepts_only_bounded_sizing_and_safe_cloud_fields(self):
+        result = ModelGateway._validate({
+            "vm_count": 3,
+            "vcpu_per_vm": 8,
+            "memory_gb_per_vm": 32,
+            "disk_gb_per_vm": 200,
+            "high_availability": True,
+            "container_image": "ghcr.io/example/api:v1",
+            "container_port": 8080,
+            "name": "api-service",
+            "namespace": "production",
+            "admin_command": "reboot",
+            "vcpu_per_vm_bad": 999999,
+        })
+        self.assertEqual(result["vcpu_per_vm"], 8)
+        self.assertEqual(result["memory_gb_per_vm"], 32)
+        self.assertEqual(result["high_availability"], True)
+        self.assertNotIn("admin_command", result)
+
     def test_llm_output_is_strictly_validated(self):
         result = ModelGateway._validate({
             "vm_count": 3,
