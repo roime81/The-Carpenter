@@ -1,16 +1,32 @@
 services:
+  volume-init:
+    image: alpine:3.20
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /data"]
+    volumes:
+      - carpenter-data:/data
+    restart: "no"
+
   carpenter:
     build:
       context: .
       dockerfile: Dockerfile
     image: the-carpenter:local
     restart: unless-stopped
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     environment:
       CARPENTER_APP_NAME: The Carpenter
       CARPENTER_ENV: ${CARPENTER_ENV:-development}
       CARPENTER_DB_PATH: /data/carpenter.db
       CARPENTER_AGENT_ENROLLMENT_TOKEN: ${CARPENTER_AGENT_ENROLLMENT_TOKEN:?Set CARPENTER_AGENT_ENROLLMENT_TOKEN in .env}
       CARPENTER_COOKIE_SECURE: ${CARPENTER_COOKIE_SECURE:-false}
+      CARPENTER_LLM_PROVIDER: ${CARPENTER_LLM_PROVIDER:-none}
+      CARPENTER_LLM_MODEL: ${CARPENTER_LLM_MODEL:-llama3.1:8b}
+      CARPENTER_LLM_BASE_URL: ${CARPENTER_LLM_BASE_URL:-http://host.docker.internal:11434}
+      CARPENTER_LLM_API_KEY: ${CARPENTER_LLM_API_KEY:-}
+      CARPENTER_LLM_TIMEOUT_SECONDS: ${CARPENTER_LLM_TIMEOUT_SECONDS:-20}
     ports:
       - "${CARPENTER_PORT:-8000}:8000"
     volumes:
