@@ -83,7 +83,8 @@ def render_haproxy_backends(backends: list[dict[str, Any]], frontend_port: int =
         ipaddress.ip_address(host)
         if not 1 <= port <= 65535:
             raise ValueError("Invalid backend port")
-        lines.append(f"    server app{index} {host}:{port} check")
+        endpoint = f"[{host}]:{port}" if ipaddress.ip_address(host).version == 6 else f"{host}:{port}"
+        lines.append(f"    server app{index} {endpoint} check")
     return "\n".join(lines) + "\n"
 
 
