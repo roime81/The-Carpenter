@@ -2,7 +2,7 @@
 
 ## Contract
 
-All infrastructure actions are represented as registered Python functions. The runtime accepts JSON-compatible dictionaries and returns structured dictionaries. Functions must be deterministic where practical and idempotent for mutating operations.
+Infrastructure capabilities are represented as registered Python functions. The runtime accepts JSON-compatible dictionaries and returns structured dictionaries. Functions must be deterministic where practical and idempotent for mutating operations.
 
 ## Current functions
 
@@ -28,8 +28,8 @@ Every production function must declare:
 - Name and semantic version.
 - Input and output schema.
 - Required capabilities and privilege level.
-- Timeout and retry policy.
-- Idempotency requirements.
+- Worker execution limit and retry policy.
+- Idempotency requirements and concurrency behaviour.
 - Approval class (read-only, low-risk mutation, privileged mutation, destructive).
 - Compensation/rollback strategy.
 - Audit event and telemetry fields.
@@ -38,4 +38,4 @@ Every production function must declare:
 
 The agent must never generate arbitrary shell commands and pass them directly to a worker. The planner selects a registered function and creates a typed invocation. The policy layer validates it. The approval service authorises it. The worker executes only the registered handler.
 
-The current implementation is an in-process proof of concept with a thread pool and process-local idempotency cache. Do not use it as a distributed production scheduler.
+The current implementation is an in-process proof of concept with a thread pool and process-local, best-effort idempotency cache. A caller timeout does not terminate a running Python thread. Run only trusted, short-lived functions in this runtime. Production execution must use isolated worker processes or containers, a durable queue, worker leases, retry/dead-letter handling, persistent idempotency and signed versioned function packages.
