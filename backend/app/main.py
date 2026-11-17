@@ -22,7 +22,7 @@ from app.worker_catalogue import register_worker_functions
 from app.deployment_models import DeploymentRequest, DeploymentApproval
 from app.deployment_store import create as create_deployment_record, get as get_deployment_record, approve as approve_deployment_record, set_status as set_deployment_status
 from app.deployment_engine import DeploymentEngine
-from app.operations_engine import assess_high_availability, recommend_action
+from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
@@ -98,7 +98,7 @@ def enqueue_job(
     try:
         job = store.enqueue_job(
             request.function_name, request.function_version, request.payload,
-            request.max_attempts, request.priority, request.idempotency_key,
+            request.max_attempts, request.priority, request.idempotency_key, request.target_worker_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -178,17 +178,21 @@ def schedule_discovery(
 ) -> dict[str, Any]:
     _require_admin(x_carpenter_token)
     jobs = []
-    for function_name in (
-        "discovery.host_inventory",
-        "discovery.hypervisor_probe",
-        "discovery.storage_network",
-    ):
-        jobs.append(store.enqueue_job(
-            function_name, "1.0.0", {}, max_attempts=3,
-            idempotency_key=f"discovery-{function_name}-{uuid.uuid4()}",
-        ))
+    workers = store.list_agents(online_only=True)
+    for worker in workers:
+        for function_name in (
+            "discovery.host_inventory",
+            "discovery.hypervisor_probe",
+            "discovery.storage_network",
+        ):
+            jobs.append(store.enqueue_job(
+                function_name, "1.0.0", {}, max_attempts=3,
+                idempotency_key=f"discovery-{worker['node_id']}-{function_name}-{uuid.uuid4()}",
+                target_worker_id=worker["node_id"],
+            ))
     store.record_event("discovery.scan.queued", None, {"job_ids": [job["job_id"] for job in jobs]})
-    return {"jobs": jobs, "message": "Discovery functions were queued for enrolled workers."}
+    return {"jobs": jobs, "worker_count": len(workers),
+            "message": "Discovery functions were queued against every online enrolled node."}
 
 
 @app.post("/api/v1/resources/plan")
@@ -212,6 +216,66 @@ def resource_forecast(
 ) -> dict[str, Any]:
     _require_admin(x_carpenter_token)
     return forecast_capacity(samples, threshold_percent)
+
+
+@app.post("/api/v1/operations/failover-plan")
+def operations_failover_plan(
+    body: dict[str, Any],
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    failed_node_id = str(body.get("failed_node_id", ""))
+    if not failed_node_id:
+        raise HTTPException(status_code=422, detail="failed_node_id is required")
+    try:
+        result = build_failover_plan(
+            store.list_agents(online_only=True),
+            failed_node_id=failed_node_id,
+            vm_count=int(body.get("vm_count", 1)),
+            vcpu_per_vm=int(body.get("vcpu_per_vm", 2)),
+            memory_gb_per_vm=int(body.get("memory_gb_per_vm", 4)),
+            disk_gb_per_vm=int(body.get("disk_gb_per_vm", 40)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    store.record_event("operations.failover.plan.created", failed_node_id, result)
+    return result
+
+
+@app.post("/api/v1/operations/load-balancer/plan")
+def operations_load_balancer_plan(
+    body: dict[str, Any],
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    try:
+        result = load_balancer_plan(
+            body.get("backends", []), int(body.get("frontend_port", 80))
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    store.record_event("operations.load-balancer.plan.created", None, {
+        "backend_count": result["backend_count"],
+    })
+    return result
+
+
+@app.get("/api/v1/operations/metrics")
+def operations_metrics(
+    limit: int = 100,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    jobs = [
+        job for job in store.list_jobs(limit)
+        if job["function_name"] == "operations.metrics_snapshot"
+        and job["status"] == "succeeded"
+    ]
+    return {"snapshots": [
+        {"job_id": job["job_id"], "worker_id": job["worker_id"],
+         "captured": job["updated_at"], "metrics": job["result"]}
+        for job in jobs
+    ]}
 
 
 @app.get("/api/v1/operations/events")
@@ -320,6 +384,7 @@ def collect_metrics(
         store.enqueue_job(
             "operations.metrics_snapshot", "1.0.0", {},
             max_attempts=3, idempotency_key=f"metrics-{node['node_id']}-{uuid.uuid4()}",
+            target_worker_id=node["node_id"],
         )
         for node in workers
         if node.get("capabilities", {}).get("operations.metrics_snapshot") == "1.0.0"
