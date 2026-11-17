@@ -6,10 +6,12 @@ The prompt and planning APIs do not grant the model arbitrary execution access. 
 
 Discovery and metrics are read-only. The TCP probe accepts explicit private, loopback or link-local IP literals and a restricted port allow-list; it does not perform CIDR sweeps or public address scanning.
 
-Deployment mutations are behind plan → approval → execute routes. The adapters require explicit configuration:
+Deployment mutations are behind plan → approval → distributed FaaS dispatch. Provider API calls execute on selected workers, not in the web/API process. Provider credentials are configured only on the worker that advertises the relevant function:
 - Proxmox: HTTPS API token and a prebuilt cloud-init template.
 - Kubernetes: HTTPS API and a service account scoped to the intended namespace/resources.
-- GAMGEE: HTTPS installer endpoint and a shared HMAC signing secret following the Carpenter request contract.
+- GAMGEE: HTTPS installer endpoint and HMAC signing secret following the Carpenter request contract.
+
+The worker reports only its function capability to the control plane; provider secrets are not included in heartbeats or FaaS payloads.
 
 ## Development credentials
 
