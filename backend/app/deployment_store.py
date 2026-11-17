@@ -90,11 +90,15 @@ def set_status(deployment_id: str, status: str) -> dict[str, Any] | None:
     if status not in allowed:
         raise ValueError("Invalid deployment status")
     now = store.iso_now()
+    # Enforce one-way state transitions. In particular, an approved
+    # deployment can enter executing exactly once; an executing deployment
+    # cannot be re-entered by a concurrent duplicate dispatch request.
+    expected_previous = "approved" if status == "executing" else "executing"
     with store._connect() as connection:
         cursor = connection.execute(
             """UPDATE deployments SET status=?, updated_at=?
-               WHERE deployment_id=? AND status IN ('approved', 'executing')""",
-            (status, now, deployment_id),
+               WHERE deployment_id=? AND status=?""",
+            (status, now, deployment_id, expected_previous),
         )
         if cursor.rowcount != 1:
             return None
