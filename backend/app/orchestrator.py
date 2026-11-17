@@ -20,7 +20,7 @@ DISCOVERY_FUNCTIONS = (
 
 
 class CarpenterOrchestrator:
-    """Single-agent conversation coordinator backed by deterministic engines."""
+    """AI Cloud Deployment Agent: interpret, discover, plan, compile IaC and orchestrate FaaS execution."""
 
     def __init__(self) -> None:
         self.runtime = FunctionRuntime()
@@ -136,6 +136,7 @@ class CarpenterOrchestrator:
             "session_id": session_id,
             "destination": request["destination"],
             "service_model": request["service_model"],
+            "iac_fingerprint": plan["iac_bundle"]["fingerprint"],
         })
 
         blockers: list[str] = []
@@ -145,42 +146,50 @@ class CarpenterOrchestrator:
             if not blockers:
                 blockers.append("No online, eligible data-plane capacity was found.")
         if not plan["ha_ready"]:
-            blockers.append("The requested HA topology does not span enough independent failure domains.")
+            blockers.append("The requested HA topology is not sufficiently verified.")
         if not plan["adapter_ready"]:
             checks = plan["adapter_checks"]
-            if request["destination"] == "gamgee" and not checks["gamgee_installer_configured"]:
-                blockers.append("The GAMGEE installer endpoint and signing secret are not configured.")
+            if request["destination"] == "gamgee" and not checks["gamgee_worker_available"]:
+                blockers.append("No online worker is configured for the GAMGEE installer function.")
             if request["destination"] == "own_cloud":
-                if request["service_model"] in ("iaas", "hybrid") and not checks["proxmox_configured"]:
-                    blockers.append("The Proxmox API, node, token and prepared template are not configured.")
+                if request["service_model"] in ("iaas", "hybrid") and not checks["proxmox_worker_available"]:
+                    blockers.append("No enrolled Proxmox worker advertises the configured deployment function.")
                 if request["service_model"] in ("paas", "hybrid"):
-                    if not checks["kubernetes_configured"]:
-                        blockers.append("The Kubernetes API and scoped service-account token are not configured.")
+                    if not checks["kubernetes_worker_available"]:
+                        blockers.append("No worker advertises the configured Kubernetes deployment function.")
                     if not request.get("container_image"):
                         blockers.append("A container image is required for the PaaS component.")
 
         target = "GAMGEE Cloud" if request["destination"] == "gamgee" else "your own cloud"
+        bundle = plan["iac_bundle"]
+        artifact_names = [artifact["filename"] for artifact in bundle["artifacts"]]
         lines = [
-            "**Deployment plan created**",
+            "**I have translated your request into an infrastructure plan.**",
             "",
             f"- Destination: {target}",
             f"- Cloud model: {request['service_model'].upper()}",
             f"- Requested VMs/replicas: {request['vm_count']}",
-            f"- Online enrolled servers: {plan['host_count']}",
+            f"- Online enrolled servers assessed: {plan['host_count']}",
             f"- Capacity check: {'passed' if plan['capacity_ready'] else 'not passed'}",
             f"- HA check: {'passed' if plan['ha_ready'] else 'not passed'}",
-            f"- Adapter check: {'configured' if plan['adapter_ready'] else 'not configured'}",
-            f"- Plan ID: `{record['deployment_id']}`",
+            f"- Provider workers: {'available' if plan['adapter_ready'] else 'not available'}",
+            f"- Generated IaC resources: {bundle['resource_count']}",
+            f"- IaC fingerprint: `{bundle['fingerprint'][:16]}`",
+            f"- Deployment ID: `{record['deployment_id']}`",
             "",
+            "**IaC generated internally**",
         ]
+        lines.extend(f"- `{name}`" for name in artifact_names)
+        lines.append("You do not need to write YAML, Terraform or provider configuration by hand.")
         if blockers:
-            lines.append("**Items to resolve before execution**")
+            lines.extend(["", "**Items to resolve before execution**"])
             lines.extend(f"- {item}" for item in blockers)
         else:
-            lines.append("The plan is ready for an authorised approval.")
+            lines.append("")
+            lines.append("The generated resource graph passed the initial readiness checks and is ready for authorised approval.")
         lines.extend([
             "",
-            "Nothing has been provisioned. The saved plan must be reviewed and approved through the authenticated deployment API before any infrastructure change.",
+            "The Carpenter will apply this generated IaC through its versioned Python provider functions. No infrastructure has changed yet; provisioning starts only after the deployment approval policy is satisfied.",
         ])
         return "\n".join(lines)
 
