@@ -38,7 +38,7 @@ BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
     title="The Carpenter",
     description="An AI Cloud Deployment Agent and AI IaC Agent that discovers, compiles, validates and provisions infrastructure through distributed Python workers.",
-    version="0.3.0",
+    version="0.4.0",
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -264,7 +264,7 @@ def _handle_chat_deployment_command(
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "the-carpenter", "version": "0.3.0"}
+    return {"status": "ok", "service": "the-carpenter", "version": "0.4.0"}
 
 
 @app.get("/api/v1/functions")
