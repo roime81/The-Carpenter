@@ -1,41 +1,67 @@
-# Native Python FaaS Function Model
+# Native Python FaaS
 
-## Contract
+## Function model
 
-Infrastructure capabilities are represented as registered Python functions. The runtime accepts JSON-compatible dictionaries and returns structured dictionaries. Functions must be deterministic where practical and idempotent for mutating operations.
+All infrastructure capabilities are represented as versioned Python functions. The model selects intent; a typed planner chooses registered functions; workers execute only built-in or explicitly installed handlers. No generated shell or Python code is run.
 
-## Current functions
+## Distributed worker functions
 
-| Function | Purpose | Side effects |
-|---|---|---|
-| `assessment.capacity` | Aggregate enrolled-node CPU and memory inventory | None |
-| `planning.deployment` | Produce a preliminary VM capacity plan | None |
-| `operations.scaling_recommendation` | Recommend scale-up, scale-down review, or hold | None |
+| Function | Version | Behaviour | Side effects |
+|---|---:|---|---|
+| `discovery.host_inventory` | 1.0.0 | CPU, RAM, OS, disk, hostname facts | Read-only |
+| `discovery.hypervisor_probe` | 1.0.0 | KVM, libvirt, Proxmox, container and Kubernetes tool presence | Read-only |
+| `discovery.storage_network` | 1.0.0 | Mounted filesystems, interfaces, link state, counters | Read-only |
+| `operations.metrics_snapshot` | 1.0.0 | CPU, memory, root-disk and network snapshot | Read-only |
+| `network.tcp_probe` | 1.0.0 | Explicit private IP and allow-listed TCP ports | Read-only |
 
-## Planned function domains
+The worker only executes a function if it has that exact function name/version installed. Worker capability advertisements are refreshed in the node heartbeat.
 
-- `discovery.*`: node/provider discovery, health and capability probing.
-- `compute.*`: VM create, resize, stop, start and delete.
-- `network.*`: virtual networks, subnets, security rules, routing and load balancing.
-- `storage.*`: volumes, snapshots, attachment and backup.
-- `platform.*`: PaaS services, runtime deployment and service discovery.
-- `gamgee.*`: one-time bootstrap, node join, upgrade and health.
-- `operations.*`: telemetry, autoscaling, remediation and recovery.
+## Local control-plane functions
 
-## Required function metadata
+- `assessment.capacity`: preliminary aggregate capacity estimate.
+- `planning.deployment`: simple non-mutating VM sizing estimate.
+- `operations.scaling_recommendation`: non-mutating scale recommendation.
 
-Every production function must declare:
-- Name and semantic version.
-- Input and output schema.
-- Required capabilities and privilege level.
-- Worker execution limit and retry policy.
-- Idempotency requirements and concurrency behaviour.
-- Approval class (read-only, low-risk mutation, privileged mutation, destructive).
-- Compensation/rollback strategy.
-- Audit event and telemetry fields.
+## Queue lifecycle
 
-## Execution model
+1. The control plane validates that a function/version is registered.
+2. It writes a durable queued job with a unique ID, JSON payload and retry policy.
+3. A worker polls the claim endpoint over its outbound connection.
+4. The scheduler checks its advertised function versions and optional target-worker constraint.
+5. The scheduler sets a lease token and expiry and increments the attempt counter.
+6. The worker runs its allow-listed handler and reports a result or failure.
+7. Expired/failed jobs are retried with exponential backoff; exhausted jobs become `dead`.
 
-The agent must never generate arbitrary shell commands and pass them directly to a worker. The planner selects a registered function and creates a typed invocation. The policy layer validates it. The approval service authorises it. The worker executes only the registered handler.
+The delivery model is at-least-once. A worker can crash after doing work but before reporting success, so future mutating functions must use operation IDs/idempotency keys and compensating actions. Queue idempotency keys are currently stored in SQLite.
 
-The current implementation is an in-process proof of concept with a thread pool and process-local, best-effort idempotency cache. A caller timeout does not terminate a running Python thread. Run only trusted, short-lived functions in this runtime. Production execution must use isolated worker processes or containers, a durable queue, worker leases, retry/dead-letter handling, persistent idempotency and signed versioned function packages.
+## API
+
+Admin calls require `X-Carpenter-Token`; workers require `X-Agent-Token`.
+
+- `GET /api/v1/functions`
+- `POST /api/v1/jobs`
+- `GET /api/v1/jobs`
+- `GET /api/v1/jobs/{job_id}`
+- `POST /api/v1/workers/{worker_id}/claim`
+- `POST /api/v1/workers/{worker_id}/jobs/{job_id}/complete`
+- `POST /api/v1/workers/{worker_id}/jobs/{job_id}/fail`
+
+Example enqueue:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/jobs \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"function_name":"discovery.hypervisor_probe","function_version":"1.0.0","payload":{},"max_attempts":3}'
+```
+
+To force work onto a specific enrolled node, pass `target_worker_id`. This is used by fleet-wide discovery/metrics jobs to ensure every online node is examined.
+
+## Runtime limitations
+
+- The queue is durable in SQLite but the control plane remains a single-instance MVP.
+- Worker handlers are shipped with the node agent; there is no remote code download or package execution.
+- Function digests are registry metadata, not yet signed artifact verification.
+- Leases and retries provide at-least-once delivery, not exactly-once effects.
+- Mutating provider functions need stronger per-operation idempotency, compensation and approval metadata before production.
+- Current jobs run synchronously in the worker process. A hung handler can outlive a caller wait; production workers need process/container isolation and cancellation.
