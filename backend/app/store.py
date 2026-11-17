@@ -119,6 +119,14 @@ def initialise_store() -> None:
             );
             """
         )
+        # Forward-compatible migration for databases created by earlier 0.2.0
+        # pre-release commits before worker-specific routing existed.
+        job_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(faas_jobs)").fetchall()
+        }
+        if "target_worker_id" not in job_columns:
+            connection.execute("ALTER TABLE faas_jobs ADD COLUMN target_worker_id TEXT")
 
 
 # Conversation persistence
