@@ -198,7 +198,7 @@ def _proxmox_request(
     return payload.get("data")
 
 
-def _wait_proxmox_task(node: str, task: Any, timeout_seconds: int = 240) -> None:
+def _wait_proxmox_task(node: str, task: Any, timeout_seconds: int = 120) -> None:
     if not isinstance(task, str) or not task.startswith("UPID:"):
         return
     deadline = time.monotonic() + timeout_seconds
