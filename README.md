@@ -319,8 +319,9 @@ These APIs produce assessments and plans. They do not yet perform autonomous loa
 | POST | `/api/v1/resources/plan` | Non-mutating placement plan (admin) |
 | POST | `/api/v1/resources/forecast` | Simple capacity forecast (admin) |
 | POST | `/api/v1/deployments/plan` | Create dual-cloud deployment plan |
+| GET | `/api/v1/deployments/{id}` | Read plan and reconcile linked FaaS job results |
 | POST | `/api/v1/deployments/{id}/approve` | Approve saved plan |
-| POST | `/api/v1/deployments/{id}/execute` | Execute approved plan |
+| POST | `/api/v1/deployments/{id}/execute` | Dispatch approved provider FaaS jobs |
 | POST | `/api/v1/operations/metrics/collect` | Queue node metrics |
 | GET | `/api/v1/operations/metrics` | Read metrics job results |
 | POST | `/api/v1/operations/ha-assessment` | HA readiness check |
