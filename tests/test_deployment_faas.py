@@ -64,6 +64,9 @@ class DeploymentFaasTests(unittest.TestCase):
         self.assertTrue(plan["adapter_ready"])
         self.assertTrue(plan["capacity_ready"])
         self.assertEqual(plan["execution_workers"]["proxmox"], ["pve-worker-01"])
+        self.assertEqual(plan["iac_bundle"]["schema_version"], "carpenter.iac/v1")
+        self.assertTrue(plan["iac_validation"]["valid"])
+        self.assertEqual(plan["iac_bundle"]["resource_count"], 2)
 
     def test_paas_ha_is_not_claimed_without_kubernetes_cluster_topology(self):
         kubernetes_workers = [
@@ -139,6 +142,8 @@ class DeploymentFaasTests(unittest.TestCase):
             item["function_name"] == "compute.proxmox_deploy"
             and item["target_worker_id"] == "pve-worker-01"
             and len(item["payload"]["vms"]) == 1
+            and item["payload"]["iac_fingerprint"] == plan["iac_bundle"]["fingerprint"]
+            and item["payload"]["iac_resource"]["kind"] == "virtual_machine"
             for item in dispatch["queued_jobs"]
         ))
 
