@@ -1,147 +1,91 @@
 # The Carpenter
 ### One Agent That Rules Them All.
 
-**The Carpenter is a prompt-driven cloud launcher.** Users describe the cloud outcome they want. The Carpenter discovers enrolled infrastructure, assesses capacity, clarifies the deployment target, prepares a plan, and (through future verified adapters) provisions and operates the selected environment.
+**A minimalist, prompt-driven cloud launcher.** The user describes the outcome. The Carpenter assesses the user's servers, plans resource placement, coordinates cloud deployment and provides ongoing operations intelligence.
 
-The product has one primary interface: a minimalist web page with one prompt bar. The complexity belongs in the control plane, not in the user's workflow.
+> **The Carpenter is the control plane. The user's servers are the data plane.** GAMGEE is optional: the user can ask The Carpenter to onboard GAMGEE Cloud or build an independent cloud.
 
-> **Current status: runnable foundation / early MVP.** This repository contains the Python web control plane, prompt conversation, node-inventory heartbeat, optional local LLM intent extraction, and a small Python-native FaaS function runtime. It currently produces preliminary plans only. It does not yet create VMs, install hypervisors, deploy PaaS services, bootstrap GAMGEE, or make autonomous load-balancer changes.
+The interface stays deliberately small: one web prompt, one agent, and conversational clarification. The platform complexity is implemented behind the prompt using native Python functions.
+
+## Contents
+
+- [Principles and architecture](#principles-and-architecture)
+- [Implementation status](#implementation-status)
+- [Quick start](#quick-start)
+- [Enrol data-plane servers](#enrol-data-plane-servers)
+- [Configure cloud adapters](#configure-cloud-adapters)
+- [Use the deployment lifecycle](#use-the-deployment-lifecycle)
+- [Operate and inspect](#operate-and-inspect)
+- [API reference](#api-reference)
+- [Tests](#tests)
+- [Security and production readiness](#security-and-production-readiness)
+- [Technical documentation](#technical-documentation)
 
 ---
 
-## 1. Product principles
+## Principles and architecture
 
-- **The Carpenter is the control plane.** It understands intent, assesses, plans, enforces policy and coordinates execution.
-- **The user's servers are the data plane.** Their compute, storage, network and hypervisor resources host the resulting cloud.
-- **Two destinations, never one forced platform:**
-  - **Onboard GAMGEE Cloud** — install GAMGEE once on the selected environment, then register additional nodes and expand it.
-  - **Build my own cloud** — independently provision the user's chosen IaaS, PaaS or hybrid stack. GAMGEE is not a dependency.
-- **Python 100%.** Application, API, orchestration, AI gateway, node agent and FaaS functions are Python. The web interface is server-rendered HTML/CSS; there is no Node.js or JavaScript application runtime.
-- **Native FaaS execution.** Discovery, assessment, provisioning, networking, storage, monitoring, scaling and recovery are independently registered Python functions.
-- **One agent, many specialised functions.** The model interprets intent; deterministic, allow-listed functions do the work. The model never gets unrestricted shell or infrastructure credentials.
-- **Approval before mutation.** Discovery and assessment are read-only. VM creation, network changes, storage changes, installation and deletion require explicit approval and a compatible execution adapter.
-
-## 2. User experience and workflow
-
-The user might type:
-
-> "I have six servers. Build a highly available PaaS environment for my applications."
-
-The Carpenter follows a conversational process:
-
-1. **Connect** — the user installs the Carpenter Node Agent on the servers or connects a supported infrastructure provider.
-2. **Discover** — nodes report in through an authenticated outbound connection. Ping alone is not treated as proof of manageability.
-3. **Assess** — collect host facts and calculate preliminary capacity. The full target assessment will include CPU, RAM, storage performance, networking, hypervisor capability, GPU, existing workloads and failure domains.
-4. **Ask VM/workload requirements** — clarify the requested VM count, sizing and workload needs.
-5. **Choose destination** — ask whether the user wants GAMGEE Cloud or their own cloud.
-6. **Choose cloud model** — ask for IaaS, PaaS or hybrid.
-7. **Plan** — calculate placement, headroom, HA requirements, risks and the execution sequence.
-8. **Approve and build** — a future adapter executes the approved plan as idempotent functions with checkpoints and compensation.
-9. **Operate** — monitor health and utilisation; recommend or apply bounded scaling and load-balancer changes under policy.
-
-The sequence is intentionally conversational. The user should not need to open a collection of infrastructure configuration screens.
-
-## 3. Architecture
+1. **Python 100%.** API, orchestration, model gateway, workers, infrastructure adapters and FaaS functions are Python. The browser UI is server-rendered HTML/CSS; there is no Node.js or JavaScript application runtime.
+2. **Control plane / data plane separation.** The Carpenter controls; user-owned servers provide compute, storage and network.
+3. **Two cloud choices.** GAMGEE onboarding or independent IaaS/PaaS/hybrid. Neither option is forced.
+4. **Native Python FaaS.** Functions are registered, versioned and executed by trusted workers.
+5. **Prompt-first experience.** No configuration-heavy infrastructure console.
+6. **Safe execution.** The AI interprets and plans; typed functions and provider adapters execute. Infrastructure mutations follow plan → approval → execute.
 
 ```text
-                         USER
-                          |
-                 Minimal Web Prompt
-                          |
-                Python Web / API Layer
-                          |
-                  THE CARPENTER
-             Intent • Conversation • Plan
-                          |
-                 Policy / Approval
-                          |
-              Native Python FaaS Runtime
-             /       |        |          \
-       Discovery  Assessment Provision  Operations
-             \       |        |          /
-                          |
-              Secure Node / Provider APIs
-                          |
-                 USER DATA PLANE
-        Servers • Hypervisors • Storage • Network
-                    /             \
-             GAMGEE CLOUD       OWN CLOUD
-              optional       IaaS / PaaS / Hybrid
+                 USER
+                  |
+          Minimal Web Prompt
+                  |
+            Python API
+                  |
+          THE CARPENTER AGENT
+        Intent • Plan • Policy
+                  |
+         Distributed Python FaaS
+        Queue • Versions • Leases
+             /    |     \
+          Node A Node B Node C
+             \    |     /
+             USER DATA PLANE
+     Servers • Hypervisors • Storage
+                  |
+          +-------+--------+
+          |                |
+     GAMGEE CLOUD       OWN CLOUD
+      optional          IaaS / PaaS
+          +-------+--------+
+                  |
+            OPERATIONS ENGINE
+        Metrics • HA • Failover • LB
 ```
 
-### Control plane
+## Implementation status
 
-- Prompt interface and conversation state.
-- LLM gateway for constrained intent extraction.
-- Node enrolment and inventory aggregation.
-- Capacity assessment and placement.
-- Deployment plan, policy, approval and audit.
-- Native FaaS registration, invocation and lifecycle orchestration.
-- Telemetry evaluation, HA and scaling decisions.
+<badge color="success">CI tests passing</badge> <badge color="info">Early engineering foundation</badge>
 
-### Data plane
-
-- Physical servers and virtualisation hosts.
-- Compute, storage, network, images and workload runtimes.
-- GAMGEE services only when the user chooses that path.
-- User-selected cloud services on the independent-cloud path.
-- Workload health and infrastructure telemetry.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design boundaries and flow.
-
-## 4. Native Python FaaS
-
-Every infrastructure capability is designed as a versioned Python function. The current local runtime supports registration, structured input/output, invocation IDs, wait timeouts and process-local idempotency.
-
-| Function | Current responsibility | Status |
+| Programme | Implemented in this increment | Still required for production |
 |---|---|---|
-| `assessment.capacity` | Aggregate CPU and memory from enrolled nodes | Implemented |
-| `planning.deployment` | Produce preliminary VM capacity plan | Implemented |
-| `operations.scaling_recommendation` | Recommend scale-up / review scale-down / hold | Implemented |
-| `discovery.*` | Full capability and topology discovery | Roadmap |
-| `compute.*` | VM lifecycle and resizing | Adapter required |
-| `network.*` | Networks, routing, security and load balancers | Adapter required |
-| `storage.*` | Volumes, snapshots and backup | Adapter required |
-| `gamgee.*` | One-time bootstrap, node join and upgrades | GAMGEE integration required |
+| Distributed Native FaaS | Durable SQLite queue, versioned function matching, targeted worker polling, leases, retries/backoff, idempotency keys, dead-letter status | Shared PostgreSQL queue, isolated workers, signed function packages, multi-tenant quotas |
+| Infrastructure Discovery | Per-node CPU/RAM/disk/OS/network facts, KVM/libvirt/Proxmox detection, targeted read-only TCP probes | Hypervisor API inventory, IOPS/network benchmarks, GPU/NUMA and full failure-domain topology |
+| Intelligent Resource Engine | Per-host placement, CPU/RAM/disk headroom, HA spread, simple capacity forecast | Reservations, workload-aware bin packing, NUMA/GPU/IOPS and cost models |
+| Dual Cloud Deployment | GAMGEE signed installer handoff, Proxmox template clone/start for IaaS, Kubernetes Deployment/Service for PaaS, approval workflow | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation, multi-resource compensation |
+| Autonomous Operations | Worker metrics, HA assessment, scale recommendations, failover placement and HAProxy config planning | Live SLO/alert pipeline, automatic adapter apply, health verification, fencing, drain, rollback and recovery |
 
-The current runtime is an **in-process foundation**, not yet a distributed FaaS scheduler. Distributed workers, durable queues, leases, retry/dead-letter handling, signed function packages, function versioning and rollback are planned. See [docs/FUNCTIONS.md](docs/FUNCTIONS.md).
+**Important distinction:** the code includes real adapter implementations for Proxmox and Kubernetes APIs, but a user's own infrastructure and credentials are required to exercise them. The GAMGEE path is an integration contract; it needs a compatible GAMGEE installer endpoint. The own-cloud PaaS path currently targets an existing Kubernetes cluster; it does not yet bootstrap Kubernetes on raw servers.
 
-## 5. AI model integration
+---
 
-The AI gateway can use:
-- **Ollama** for local/open-source models.
-- **OpenAI-compatible endpoints** for other self-hosted or commercial model services.
-- **Deterministic fallback** when no model is configured.
-
-The model is deliberately constrained to extract user intent (VM count, GAMGEE vs own cloud, and IaaS/PaaS/hybrid). The backend validates those fields. It cannot invoke infrastructure functions, generate executable code for workers, or access secrets.
-
-### Configure Ollama
-
-Run Ollama on a host reachable from the Carpenter container and pull a model, for example:
-
-```bash
-ollama pull llama3.1:8b
-```
-
-Set these values in `.env`:
-
-```dotenv
-CARPENTER_LLM_PROVIDER=ollama
-CARPENTER_LLM_MODEL=llama3.1:8b
-CARPENTER_LLM_BASE_URL=http://host.docker.internal:11434
-```
-
-For an OpenAI-compatible service, set `CARPENTER_LLM_PROVIDER=openai-compatible`, configure `CARPENTER_LLM_BASE_URL` to its `/v1` base URL, and provide `CARPENTER_LLM_API_KEY` only when required. Do not commit API keys.
-
-## 6. Quick deployment with Docker
+## Quick start
 
 ### Requirements
 
-- Docker Engine 24 or later.
+- Docker Engine 24+.
 - Docker Compose v2.
-- A free local TCP port (default: 8000).
+- Python 3.12+ on each data-plane server that will run a worker.
+- A local TCP port (default 8000).
 
-### Install
+### 1. Clone and configure
 
 ```bash
 git clone https://github.com/roime81/The-Carpenter.git
@@ -149,9 +93,17 @@ cd The-Carpenter
 cp .env.example .env
 ```
 
-Edit `.env` and replace `CARPENTER_AGENT_ENROLLMENT_TOKEN` with a long random secret. Do not use the sample placeholder in a real environment.
+Generate two different secrets:
 
-Start the control plane:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Put one generated value in `CARPENTER_ADMIN_TOKEN` and a different one in `CARPENTER_AGENT_ENROLLMENT_TOKEN` in `.env`. Do not use the example placeholders.
+
+For a local-only demo, leave cloud adapter settings empty. You can still run the prompt UI, inspect the health endpoint and exercise planning APIs.
+
+### 2. Start The Carpenter control plane
 
 ```bash
 docker compose up --build -d
@@ -160,34 +112,38 @@ docker compose logs -f carpenter
 
 Open:
 
-- **The Carpenter UI:** http://localhost:8000
-- **Health check:** http://localhost:8000/health
-- **API documentation:** http://localhost:8000/docs
-- **Registered FaaS catalogue:** http://localhost:8000/api/v1/functions
+- **Prompt UI:** http://localhost:8000
+- **Health:** http://localhost:8000/health
+- **Interactive API docs:** http://localhost:8000/docs
+- **Versioned function catalogue:** http://localhost:8000/api/v1/functions
 
-Stop it:
+Stop the platform:
 
 ```bash
 docker compose down
 ```
 
-Persistent SQLite data is stored in the `carpenter-data` Docker volume. To remove the database as well, use `docker compose down -v` (destructive).
+The SQLite database is persisted in the `carpenter-data` Docker volume. To remove it as well, run `docker compose down -v` (destructive).
 
-## 7. Run locally without Docker
+---
 
-Python 3.12+ is recommended.
+## Enrol data-plane servers
 
-### Linux / macOS
+The Node Agent is both an inventory reporter and a distributed Python FaaS worker. Run it on every server that The Carpenter is authorised to manage. It makes outbound connections; it does not expose an inbound command listener.
+
+### Linux
 
 ```bash
 git clone https://github.com/roime81/The-Carpenter.git
 cd The-Carpenter
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-export CARPENTER_AGENT_ENROLLMENT_TOKEN="replace-with-a-long-random-secret"
-export CARPENTER_DB_PATH="./data/carpenter.db"
-uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+pip install -r node_agent/requirements.txt
+
+export CARPENTER_URL="https://carpenter.example.com"
+export CARPENTER_AGENT_TOKEN="the-same-node-enrolment-secret-from-.env"
+export CARPENTER_FAILURE_DOMAIN="rack-a"
+python node_agent/agent.py
 ```
 
 ### Windows PowerShell
@@ -197,110 +153,249 @@ git clone https://github.com/roime81/The-Carpenter.git
 cd The-Carpenter
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:CARPENTER_AGENT_ENROLLMENT_TOKEN = "replace-with-a-long-random-secret"
-$env:CARPENTER_DB_PATH = ".\data\carpenter.db"
-uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
-```
-
-## 8. Enrol a server (Node Agent)
-
-The Node Agent is a small Python process installed on each server that the user wants The Carpenter to assess. It makes an outbound heartbeat request; it does not listen for remote commands and does not execute arbitrary code.
-
-On each target server, copy or clone the repository and install the agent requirement:
-
-```bash
-python -m venv .venv
-# Linux / macOS:
-source .venv/bin/activate
-# Windows PowerShell:
-# .\.venv\Scripts\Activate.ps1
 pip install -r node_agent/requirements.txt
-```
 
-Set the control-plane URL and the same enrolment token configured on The Carpenter.
-
-Linux / macOS:
-
-```bash
-export CARPENTER_URL="https://carpenter.example.com"
-export CARPENTER_AGENT_TOKEN="your-enrolment-token"
-python node_agent/agent.py
-```
-
-Windows PowerShell:
-
-```powershell
 $env:CARPENTER_URL = "https://carpenter.example.com"
-$env:CARPENTER_AGENT_TOKEN = "your-enrolment-token"
+$env:CARPENTER_AGENT_TOKEN = "the-same-node-enrolment-secret-from-.env"
+$env:CARPENTER_FAILURE_DOMAIN = "rack-a"
 python node_agent/agent.py
 ```
 
-The agent sends a heartbeat every 30 seconds by default. Override with `CARPENTER_HEARTBEAT_SECONDS` (minimum 15). Nodes older than the configured freshness window are excluded from live capacity; the default is 90 seconds (`CARPENTER_AGENT_STALE_SECONDS`). The initial inventory includes hostname, operating system, architecture, logical CPU count, RAM, disk totals/free space and IPv4 addresses.
+Run one agent per server. Use meaningful failure domains such as `rack-a`, `rack-b`, `zone-1` or separate sites; nodes sharing a power/network/storage failure must not be assigned fake independent domains.
 
-The sample enrolment token is shared across nodes and intended only for the foundation milestone. Production requires unique node identities, per-node credentials, mutual TLS or equivalent workload identity, revocation and tenant isolation.
+The agent sends heartbeats every 30 seconds and polls the FaaS queue every 2 seconds by default. Adjust with `CARPENTER_HEARTBEAT_SECONDS` and `CARPENTER_WORKER_POLL_SECONDS`. Nodes older than `CARPENTER_AGENT_STALE_SECONDS` (default 90 seconds) are excluded from live capacity.
 
-## 9. Tests and CI
+Current worker functions are read-only: host inventory, hypervisor capability checks, storage/network inventory, metrics snapshots and tightly restricted TCP probes. The worker will not execute arbitrary shell or generated Python.
 
-Run the unit tests locally:
+For service management and the exact worker protocol, see [docs/DISTRIBUTED-FAAS.md](docs/DISTRIBUTED-FAAS.md).
 
-```bash
-# Linux / macOS
-PYTHONPATH=backend python -m unittest discover -s tests -v
+---
 
-# Windows PowerShell
-$env:PYTHONPATH = "backend"
-python -m unittest discover -s tests -v
+## Configure cloud adapters
+
+Cloud adapter secrets are read by the Python control plane from environment variables. Keep them in a secret manager in production, not in source control or prompts.
+
+### Option A — GAMGEE Cloud
+
+Set:
+
+```dotenv
+CARPENTER_GAMGEE_INSTALLER_URL=https://gamgee-installer.example.com/api/v1/bootstrap
+CARPENTER_GAMGEE_INSTALLER_TOKEN=your-shared-hmac-signing-secret
 ```
 
-GitHub Actions runs the Python unit test suite on pushes to `main` and pull requests.
+The GAMGEE installer endpoint must implement the signed request contract in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). This repository does not invent or bundle GAMGEE's installer internals.
 
-## 10. API surface
+### Option B — independent IaaS with Proxmox VE
+
+Set:
+
+```dotenv
+CARPENTER_PROXMOX_URL=https://pve.example.com:8006
+CARPENTER_PROXMOX_TOKEN_ID=carpenter@pve!launcher
+CARPENTER_PROXMOX_TOKEN_SECRET=your-proxmox-api-token-secret
+CARPENTER_PROXMOX_NODE=pve-node-01
+CARPENTER_PROXMOX_TEMPLATE_VMID=9000
+```
+
+Prepare a cloud-init-capable VM template in Proxmox first. The node agent must report that configured Proxmox node as a Proxmox host. The adapter clones the template, applies vCPU/RAM sizing, waits for Proxmox tasks and starts the VM.
+
+### Option B — independent PaaS with Kubernetes
+
+Set:
+
+```dotenv
+CARPENTER_KUBERNETES_API_URL=https://kubernetes.example.com:6443
+CARPENTER_KUBERNETES_TOKEN=your-narrowly-scoped-service-account-token
+```
+
+This adapter deploys a generated Kubernetes Deployment and ClusterIP Service using server-side apply. The Kubernetes cluster and namespace must already exist. The service account should be restricted to the intended namespace.
+
+The current PaaS adapter does not bootstrap Kubernetes on bare metal. That is a future provider/bootstrap capability.
+
+After changing `.env`, recreate the control plane:
+
+```bash
+docker compose up -d --build
+```
+
+Full parameter details and adapter behaviour are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+---
+
+## Use the deployment lifecycle
+
+Create a plan first. Do not call execute directly without reviewing the plan.
+
+### 1. Create a plan
+
+```bash
+curl -X POST http://localhost:8000/api/v1/deployments/plan \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destination": "own_cloud",
+    "service_model": "iaas",
+    "vm_count": 2,
+    "vcpu_per_vm": 4,
+    "memory_gb_per_vm": 16,
+    "disk_gb_per_vm": 100,
+    "high_availability": true,
+    "name": "app-node"
+  }'
+```
+
+The response includes a `deployment_id`, capacity/HA/adapter readiness checks and a saved plan.
+
+### 2. Approve the exact plan
+
+```bash
+curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/approve \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"approved_by":"infrastructure-owner"}'
+```
+
+### 3. Execute
+
+```bash
+curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/execute \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
+Execution is refused unless the stored plan passed its readiness checks and was approved. Hybrid deployments can partially succeed; compensation/rollback across independent providers is not yet implemented.
+
+---
+
+## Operate and inspect
+
+### Inventory
+
+```bash
+curl http://localhost:8000/api/v1/inventory \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
+### Queue discovery on every online node
+
+```bash
+curl -X POST http://localhost:8000/api/v1/discovery/scan \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
+The response returns the targeted worker jobs. Results appear in `GET /api/v1/jobs`.
+
+### Collect metrics from every online worker
+
+```bash
+curl -X POST http://localhost:8000/api/v1/operations/metrics/collect \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+
+curl http://localhost:8000/api/v1/operations/metrics \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
+### HA, scaling and load-balancer planning
+
+- `POST /api/v1/operations/ha-assessment`
+- `POST /api/v1/operations/recommendation`
+- `POST /api/v1/operations/failover-plan`
+- `POST /api/v1/operations/load-balancer/plan`
+- `GET /api/v1/operations/events`
+
+These APIs produce assessments and plans. They do not yet perform autonomous load-balancer reloads, data failover or closed-loop scaling. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+---
+
+## API reference
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/` | Prompt web UI |
-| `GET` | `/health` | Liveness |
-| `GET` | `/api/v1/functions` | Registered native Python functions |
-| `POST` | `/api/v1/agents/heartbeat` | Authenticated node inventory heartbeat |
-| `POST` | `/prompt` | Submit a prompt from the web UI |
+| GET | `/health` | Liveness |
+| GET | `/api/v1/functions` | Function/version catalogue |
+| GET | `/api/v1/inventory` | Enrolled node inventory (admin) |
+| POST | `/api/v1/agents/heartbeat` | Worker heartbeat |
+| POST | `/api/v1/jobs` | Enqueue FaaS job (admin) |
+| GET | `/api/v1/jobs` | List jobs (admin) |
+| GET | `/api/v1/jobs/{id}` | Get job result/status (admin) |
+| POST | `/api/v1/workers/{id}/claim` | Claim work (worker) |
+| POST | `/api/v1/workers/{id}/jobs/{job}/complete` | Complete leased job (worker) |
+| POST | `/api/v1/workers/{id}/jobs/{job}/fail` | Fail leased job (worker) |
+| POST | `/api/v1/discovery/scan` | Queue fleet discovery (admin) |
+| POST | `/api/v1/resources/plan` | Non-mutating placement plan (admin) |
+| POST | `/api/v1/resources/forecast` | Simple capacity forecast (admin) |
+| POST | `/api/v1/deployments/plan` | Create dual-cloud deployment plan |
+| POST | `/api/v1/deployments/{id}/approve` | Approve saved plan |
+| POST | `/api/v1/deployments/{id}/execute` | Execute approved plan |
+| POST | `/api/v1/operations/metrics/collect` | Queue node metrics |
+| GET | `/api/v1/operations/metrics` | Read metrics job results |
+| POST | `/api/v1/operations/ha-assessment` | HA readiness check |
+| POST | `/api/v1/operations/recommendation` | Scale/operation recommendation |
+| POST | `/api/v1/operations/failover-plan` | Recovery placement plan |
+| POST | `/api/v1/operations/load-balancer/plan` | HAProxy config plan |
+| GET | `/api/v1/operations/events` | Operation audit events |
 
-FastAPI's interactive API documentation is available at `/docs`.
+Administrative endpoints require `X-Carpenter-Token`; worker endpoints require `X-Agent-Token`. Interactive API documentation is at `/docs`.
 
-## 11. Current limitations — read before production
+---
 
-This is the first engineering foundation, not yet a production cloud installer.
+## Tests
 
-- Inventory is agent-based; it does not sweep arbitrary IP ranges.
-- Capacity planning currently evaluates CPU and memory only. Disk is collected but not yet used in placement; storage performance, network, GPU, hypervisor, NUMA and failure-domain logic are still required.
-- The planning function assumes a simple per-VM sizing input. It is not yet a placement scheduler.
-- VM provisioning and provider/hypervisor adapters are not implemented.
-- GAMGEE bootstrap, independent PaaS/IaaS assembly and distributed workload placement are not implemented.
-- Scaling is a recommendation function; it is not connected to a live telemetry pipeline or load balancer.
-- The FaaS runtime and idempotency cache are process-local, not distributed or durable.
-- The demo has no production authentication, multi-tenant authorisation or hardened CSRF/session setup. Do not expose it directly to the public internet or use it for privileged production infrastructure.
+Python 3.12+:
 
-The security boundary and mandatory work before enabling mutations are described in [docs/SECURITY.md](docs/SECURITY.md).
+```bash
+pip install -r requirements.txt
+PYTHONPATH=backend python -m unittest discover -s tests -v
+```
 
-## 12. Engineering roadmap
+GitHub Actions runs the unit suite on pushes to `main` and pull requests.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md). The sequence is discovery → assessment → adapter framework → approval and provisioning → GAMGEE/own-cloud deployment → distributed FaaS → operations/HA → production hardening.
+---
 
-## 13. Repository structure
+## Security and production readiness
+
+This is an early engineering foundation, not a production-ready multi-tenant cloud control plane.
+
+- The node enrollment token is shared across workers in this first increment. Production requires per-node identity, short-lived credentials and mTLS.
+- The browser prompt does not yet include production SSO/RBAC/CSRF controls.
+- The queue is durable SQLite for a single control-plane instance. Multi-replica deployment needs shared transactional storage and distributed scheduling.
+- Function versions are matched, but worker packages are not yet cryptographically signed or verified.
+- FaaS is at-least-once. Mutating functions need idempotency and compensation.
+- The Proxmox, Kubernetes and GAMGEE secrets are environment values in this build; production requires a secrets manager.
+- PaaS requires an existing Kubernetes cluster; GAMGEE requires a compatible external installer endpoint.
+- HA, failover, autoscaling and load balancing currently produce policies/plans; they are not fully autonomous closed-loop operations.
+
+Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
+
+## Technical documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Distributed FaaS](docs/DISTRIBUTED-FAAS.md)
+- [Infrastructure Discovery](docs/DISCOVERY.md)
+- [Resource Engine](docs/RESOURCE-ENGINE.md)
+- [Dual Cloud Deployment](docs/DEPLOYMENT.md)
+- [Autonomous Operations](docs/OPERATIONS.md)
+- [Function Model](docs/FUNCTIONS.md)
+- [Security](docs/SECURITY.md)
+- [Engineering Roadmap](docs/ROADMAP.md)
+- [Changelog](CHANGELOG.md)
+
+## Repository structure
 
 ```text
 .
-├── backend/
-│   └── app/
-│       ├── main.py             # Python web/API entry point
-│       ├── orchestrator.py     # Conversation state machine
-│       ├── llm.py              # Optional Ollama/OpenAI-compatible intent gateway
-│       ├── functions.py        # Native Python FaaS function catalogue
-│       ├── runtime/faas.py     # Local FaaS runtime
-│       ├── store.py            # SQLite persistence
-│       ├── templates/          # Server-rendered prompt UI
-│       └── static/             # Minimal CSS
-├── node_agent/                 # Outbound Python inventory agent
+├── backend/app/
+│   ├── adapters/              # Proxmox, Kubernetes, GAMGEE adapters
+│   ├── runtime/               # Local Python function runtime
+│   ├── main.py                # FastAPI control plane
+│   ├── store.py               # SQLite queue, worker and inventory store
+│   ├── deployment_engine.py   # Plan/approve/execute coordinator
+│   ├── resource_engine.py     # Placement and forecasting
+│   ├── operations_engine.py   # HA, recovery and LB planning
+│   └── worker_catalogue.py    # Versioned worker functions
+├── node_agent/
+│   ├── agent.py               # Outbound worker process
+│   └── handlers.py            # Allow-listed local Python handlers
 ├── docs/
 ├── tests/
 ├── Dockerfile
