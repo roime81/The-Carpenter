@@ -20,7 +20,14 @@ from app.orchestrator import CarpenterOrchestrator
 from app.resource_engine import plan_placement, forecast_capacity
 from app.worker_catalogue import register_worker_functions
 from app.deployment_models import DeploymentRequest, DeploymentApproval
-from app.deployment_store import create as create_deployment_record, get as get_deployment_record, approve as approve_deployment_record, set_status as set_deployment_status
+from app.deployment_store import (
+    create as create_deployment_record,
+    get as get_deployment_record,
+    approve as approve_deployment_record,
+    set_status as set_deployment_status,
+    link_job as link_deployment_job,
+    reconcile_status as reconcile_deployment_status,
+)
 from app.deployment_engine import DeploymentEngine
 from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
 
@@ -157,6 +164,8 @@ def worker_complete(
     if job and job["function_name"].startswith("discovery."):
         store.merge_agent_discovery(worker_id, job["function_name"], request.result)
     store.record_event("faas.job.succeeded", job_id, {"worker_id": worker_id})
+    if job and job.get("payload", {}).get("deployment_id"):
+        reconcile_deployment_status(job["payload"]["deployment_id"])
     return {"accepted": True}
 
 
@@ -172,6 +181,9 @@ def worker_fail(
     if not accepted:
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
     store.record_event("faas.job.failed", job_id, {"worker_id": worker_id, "error": request.error})
+    job = store.get_job(job_id)
+    if job and job.get("payload", {}).get("deployment_id"):
+        reconcile_deployment_status(job["payload"]["deployment_id"])
     return {"accepted": True}
 
 
@@ -313,7 +325,7 @@ def get_deployment(
     x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
 ) -> dict[str, Any]:
     _require_admin(x_carpenter_token)
-    record = get_deployment_record(deployment_id)
+    record = reconcile_deployment_status(deployment_id)
     if not record:
         raise HTTPException(status_code=404, detail="Deployment plan not found")
     return record
@@ -355,16 +367,29 @@ def execute_deployment(
     if current_plan.get("placement") != record["plan"].get("placement"):
         raise HTTPException(status_code=409, detail="Placement changed after approval; create and approve a fresh plan.")
     set_deployment_status(deployment_id, "executing")
-    store.record_event("deployment.execution.started", deployment_id, {"destination": record["destination"]})
+    store.record_event("deployment.execution.started", deployment_id, {
+        "destination": record["destination"],
+        "execution_mode": "distributed-python-faas",
+    })
     try:
         result = DeploymentEngine().execute(deployment_id, record["plan"])
-        set_deployment_status(deployment_id, "succeeded")
-        store.record_event("deployment.execution.succeeded", deployment_id, result)
-        return {"deployment_id": deployment_id, "status": "succeeded", "result": result}
+        for job in result["queued_jobs"]:
+            link_deployment_job(deployment_id, job["job_id"], job["component"])
+        store.record_event("deployment.execution.queued", deployment_id, {
+            "job_ids": [job["job_id"] for job in result["queued_jobs"]],
+            "components": [job["component"] for job in result["queued_jobs"]],
+        })
+        return {
+            "deployment_id": deployment_id,
+            "status": "queued",
+            "execution_mode": "distributed-python-faas",
+            "jobs": result["queued_jobs"],
+            "message": "Provider functions have been queued on the selected data-plane workers.",
+        }
     except Exception as exc:
         set_deployment_status(deployment_id, "failed")
         store.record_event("deployment.execution.failed", deployment_id, {"error": str(exc)})
-        raise HTTPException(status_code=502, detail=f"Deployment adapter failed: {type(exc).__name__}: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"FaaS dispatch failed: {type(exc).__name__}: {exc}") from exc
 
 
 @app.post("/api/v1/operations/ha-assessment")
