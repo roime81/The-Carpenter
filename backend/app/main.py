@@ -150,9 +150,12 @@ def worker_complete(
     x_agent_token: str = Header(default="", alias="X-Agent-Token"),
 ) -> dict[str, bool]:
     _require_agent(x_agent_token)
+    job = store.get_job(job_id)
     accepted = store.complete_job(job_id, worker_id, request.lease_token, request.result)
     if not accepted:
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
+    if job and job["function_name"].startswith("discovery."):
+        store.merge_agent_discovery(worker_id, job["function_name"], request.result)
     store.record_event("faas.job.succeeded", job_id, {"worker_id": worker_id})
     return {"accepted": True}
 
