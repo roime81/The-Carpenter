@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -132,15 +132,24 @@ def upsert_agent(inventory: dict[str, Any]) -> None:
         )
 
 
-def list_agents() -> list[dict[str, Any]]:
+def list_agents(online_only: bool = True) -> list[dict[str, Any]]:
+    """Return node inventory; by default exclude nodes with stale heartbeats."""
+    now = datetime.now(timezone.utc)
+    stale_after = timedelta(seconds=settings.agent_stale_seconds)
     with _connect() as connection:
         rows = connection.execute(
             "SELECT inventory_json, first_seen, last_seen FROM agents ORDER BY hostname"
         ).fetchall()
+
     result: list[dict[str, Any]] = []
     for row in rows:
         item = json.loads(row["inventory_json"])
+        last_seen = datetime.fromisoformat(row["last_seen"])
+        online = (now - last_seen).total_seconds() <= stale_after.total_seconds()
         item["first_seen"] = row["first_seen"]
         item["last_seen"] = row["last_seen"]
+        item["online"] = online
+        if online_only and not online:
+            continue
         result.append(item)
     return result
