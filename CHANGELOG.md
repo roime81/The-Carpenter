@@ -19,6 +19,8 @@ All notable changes to The Carpenter are documented here.
 - Refused approval if readiness checks fail or the stored IaC bundle is missing or invalid.
 - Revalidated IaC fingerprints, live capacity, placement and provider worker assignment immediately before dispatch.
 - Added atomic deployment state transition to prevent duplicate browser/API requests from dispatching the same approved deployment concurrently.
+- Enforced a one-way approved-to-executing transition so a second concurrent request cannot re-enter execution.
+- Removed the compatibility fallback that allowed the worker enrollment token to become the admin token when no admin secret was configured.
 - Added tests for role resolution, session expiry/tampering, CSRF checks, operator restrictions and conversational approve/deploy behavior.
 
 ### Documentation and release
