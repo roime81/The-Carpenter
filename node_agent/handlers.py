@@ -223,8 +223,8 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     template_vmid = int(os.environ["CARPENTER_PROXMOX_TEMPLATE_VMID"])
     if not re.fullmatch(r"[a-f0-9-]{16,64}", deployment_id):
         raise ValueError("A valid Carpenter deployment ID is required")
-    if not isinstance(vm_definitions, list) or not 1 <= len(vm_definitions) <= 256:
-        raise ValueError("A Proxmox worker job must contain between 1 and 256 VM definitions")
+    if not isinstance(vm_definitions, list) or len(vm_definitions) != 1:
+        raise ValueError("A Proxmox worker job must contain exactly one VM definition")
     if template_vmid <= 0:
         raise ValueError("CARPENTER_PROXMOX_TEMPLATE_VMID must be a prepared cloud-init template")
 
@@ -398,7 +398,12 @@ def gamgee_bootstrap(payload: dict[str, Any]) -> dict[str, Any]:
             result = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise RuntimeError(f"GAMGEE installer worker call failed: {type(exc).__name__}") from exc
-    return {"deployment_id": deployment_id, "installer_response": result, "execution_status": "submitted"}
+    if not isinstance(result, dict) or str(result.get("status", "")).lower() not in ("succeeded", "completed"):
+        raise RuntimeError(
+            "GAMGEE installer must return a terminal status of 'succeeded' or 'completed'; "
+            "an accepted/queued response is not treated as a completed deployment."
+        )
+    return {"deployment_id": deployment_id, "installer_response": result, "execution_status": "succeeded"}
 
 
 HANDLERS = {
