@@ -53,7 +53,18 @@ class DeploymentEngine:
                 if model in ("iaas", "hybrid"):
                     ha_assessments["proxmox_execution_workers"] = assess_high_availability(proxmox_workers)
                 if model in ("paas", "hybrid"):
-                    ha_assessments["kubernetes_execution_workers"] = assess_high_availability(kubernetes_workers)
+                    # Worker hosts reaching an API are not the Kubernetes cluster
+                    # failure domains. Do not infer cluster HA until a dedicated
+                    # Kubernetes node/topology discovery function is implemented.
+                    ha_assessments["kubernetes_cluster_topology"] = {
+                        "ha_ready": False,
+                        "verified": False,
+                        "reason": (
+                            "The current PaaS adapter does not yet inspect Kubernetes node readiness, "
+                            "zones, control-plane quorum or storage failure domains."
+                        ),
+                        "required_next_step": "Run Kubernetes cluster topology discovery before approving HA PaaS.",
+                    }
 
         adapter_checks = {
             "gamgee_worker_available": bool(gamgee_workers),
