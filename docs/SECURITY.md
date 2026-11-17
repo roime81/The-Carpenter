@@ -24,7 +24,7 @@ The web console uses token-based role authentication in this release:
 
 Operator and viewer credentials are optional. Configure distinct high-entropy values and never reuse a worker token as a browser token. The tokens are shared role credentials; they do not establish individual employee identities or group membership.
 
-On successful login, the control plane issues a 12-hour HMAC-SHA256 signed session containing a role, subject label, expiry and random CSRF value. The browser cookie is HttpOnly and SameSite=Strict. The login also rotates the separate conversation identifier. Prompt and logout POST requests validate the session CSRF value. Set `CARPENTER_COOKIE_SECURE=true` when TLS terminates in front of the application.
+On successful login, the control plane issues a 12-hour HMAC-SHA256 signed session containing a role, subject label, expiry and random CSRF value. The browser cookie is HttpOnly and SameSite=Strict. The login also creates a fresh conversation UUID stored as a claim inside the signed session, preventing an unsigned cookie from selecting another conversation. Prompt and logout POST requests validate the session CSRF value. Set `CARPENTER_COOKIE_SECURE=true` when TLS terminates in front of the application.
 
 Only the admin role may invoke chat commands `approve`, `deploy` or `approve and deploy`. Operators can create plans but receive a role denial for mutating actions. Viewers cannot submit prompts. The API approval endpoint records the authenticated API principal as `api-admin`; it does not trust the caller-supplied `approved_by` field as an identity claim.
 
