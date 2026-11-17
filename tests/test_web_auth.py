@@ -38,6 +38,11 @@ class WebAuthenticationTests(unittest.TestCase):
         restored = web_auth.read_session(cookie, now=1001)
         self.assertEqual(restored["subject"], identity["subject"])
         self.assertEqual(restored["role"], "admin")
+        self.assertEqual(restored["conversation_id"], identity["conversation_id"])
+        second_identity, _ = web_auth.issue_session(
+            "admin-token-with-enough-entropy-123456", now=1001
+        )
+        self.assertNotEqual(second_identity["conversation_id"], identity["conversation_id"])
         self.assertIsNone(web_auth.read_session(
             cookie, now=1000 + web_auth.SESSION_TTL_SECONDS
         ))
