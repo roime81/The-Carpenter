@@ -257,6 +257,7 @@ def enqueue_job(
     now = iso_now()
     job_id = str(uuid.uuid4())
     with _connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         function = connection.execute(
             """SELECT enabled FROM faas_functions
                WHERE function_name = ? AND version = ?""",
@@ -327,6 +328,16 @@ def claim_job(worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
                     (now_text, row["job_id"]),
                 )
 
+        worker = connection.execute(
+            "SELECT inventory_json, last_seen FROM agents WHERE node_id = ?",
+            (worker_id,),
+        ).fetchone()
+        if not worker:
+            return None
+        if (now - datetime.fromisoformat(worker["last_seen"])).total_seconds() > settings.agent_stale_seconds:
+            return None
+        capabilities = json.loads(worker["inventory_json"]).get("capabilities", {})
+
         candidates = connection.execute(
             """SELECT * FROM faas_jobs
                WHERE status='queued' AND available_at <= ?
@@ -334,39 +345,13 @@ def claim_job(worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
             (now_text,),
         ).fetchall()
 
-        eligible = None
-        for candidate in candidates:
-            workers = connection.execute(
-                "SELECT node_id, inventory_json, last_seen FROM agents"
-            ).fetchall()
-            for worker in workers:
-                if (now - datetime.fromisoformat(worker["last_seen"])).total_seconds() > settings.agent_stale_seconds:
-                    continue
-                inventory = json.loads(worker["inventory_json"])
-                capabilities = inventory.get("capabilities", {})
-                advertised = capabilities.get(candidate["function_name"])
-                if advertised == candidate["function_version"]:
-                    eligible = candidate
-                    if worker["node_id"] == worker_id:
-                        break
-            if eligible:
-                # Route work to the worker asking to claim it, but only if it supports the function.
-                worker_row = connection.execute(
-                    "SELECT inventory_json, last_seen FROM agents WHERE node_id = ?",
-                    (worker_id,),
-                ).fetchone()
-                if not worker_row:
-                    eligible = None
-                    continue
-                worker_inventory = json.loads(worker_row["inventory_json"])
-                if worker_inventory.get("capabilities", {}).get(candidate["function_name"]) != candidate["function_version"]:
-                    eligible = None
-                    continue
-                if (now - datetime.fromisoformat(worker_row["last_seen"])).total_seconds() > settings.agent_stale_seconds:
-                    eligible = None
-                    continue
-                break
-
+        eligible = next(
+            (
+                candidate for candidate in candidates
+                if capabilities.get(candidate["function_name"]) == candidate["function_version"]
+            ),
+            None,
+        )
         if eligible is None:
             return None
 
@@ -389,8 +374,9 @@ def complete_job(job_id: str, worker_id: str, lease_token: str, result: dict[str
         cursor = connection.execute(
             """UPDATE faas_jobs SET status='succeeded', result_json=?, error=NULL,
                lease_until=NULL, lease_token=NULL, updated_at=?
-               WHERE job_id=? AND status='running' AND worker_id=? AND lease_token=?""",
-            (json.dumps(result), now, job_id, worker_id, lease_token),
+               WHERE job_id=? AND status='running' AND worker_id=? AND lease_token=?
+                 AND lease_until > ?""",
+            (json.dumps(result), now, job_id, worker_id, lease_token, now),
         )
         return cursor.rowcount == 1
 
@@ -401,8 +387,9 @@ def fail_job(job_id: str, worker_id: str, lease_token: str, error: str) -> bool:
     with _connect() as connection:
         row = connection.execute(
             """SELECT attempt, max_attempts FROM faas_jobs
-               WHERE job_id=? AND status='running' AND worker_id=? AND lease_token=?""",
-            (job_id, worker_id, lease_token),
+               WHERE job_id=? AND status='running' AND worker_id=? AND lease_token=?
+                 AND lease_until > ?""",
+            (job_id, worker_id, lease_token, now),
         ).fetchone()
         if not row:
             return False
