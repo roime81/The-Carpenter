@@ -30,6 +30,7 @@ class JobEnqueueRequest(BaseModel):
     max_attempts: int = Field(default=3, ge=1, le=20)
     priority: int = Field(default=100, ge=0, le=1000)
     idempotency_key: str | None = Field(default=None, max_length=256)
+    target_worker_id: str | None = Field(default=None, max_length=128)
 
 
 class JobResultRequest(BaseModel):
