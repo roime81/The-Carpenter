@@ -162,7 +162,7 @@ Set a different generated value for each configured token. Also set `CARPENTER_S
 - Sessions are HMAC-SHA256 signed and expire after 12 hours.
 - The authentication cookie is HttpOnly and SameSite=Strict; set `CARPENTER_COOKIE_SECURE=true` when the console is served over HTTPS.
 - The prompt and logout forms include a session-bound CSRF token.
-- The conversation identifier is rotated at login and is separate from the signed authentication cookie.
+- The conversation identifier is a distinct UUID claim inside the signed authentication cookie; it is freshly generated at login and cannot be selected or swapped through an unsigned browser cookie.
 - Logout clears the browser cookies. Because sessions are stateless in this release, a copied cookie remains valid until expiry unless the signing secret is rotated.
 - The configured tokens are shared role credentials, not individual user accounts. Audit events distinguish the role principal (for example, `web-admin`) and action source, but do not prove which human used a shared token.
 
