@@ -190,13 +190,29 @@ def _handle_chat_deployment_command(
         "check status": "status",
     }
     action = commands.get(command)
+    explicit_id = None
+    if action is None:
+        identifier = r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+        match = re.fullmatch(
+            r"(approve and deploy|approve and execute|approve|deploy now|deploy|execute now|execute|deployment status|check status|status)(?: deployment)? " + identifier,
+            command,
+        )
+        if match:
+            action = commands.get(match.group(1))
+            explicit_id = match.group(2)
     if action is None:
         return None
 
     state = store.get_state(session_id)
-    deployment_id = state.get("deployment_id")
+    deployment_id = explicit_id or state.get("deployment_id")
     if not deployment_id:
-        return "There is no deployment plan attached to this conversation yet. Describe the infrastructure outcome first."
+        return "There is no deployment plan attached to this conversation yet. Describe the infrastructure outcome first, or provide a saved deployment ID."
+    # Persist an explicitly handed-off deployment ID in this authenticated
+    # browser session so subsequent deploy / status commands remain scoped.
+    if explicit_id:
+        state["deployment_id"] = explicit_id
+        state["phase"] = state.get("phase", "deployment_handoff")
+        store.set_state(session_id, state)
     actor = str(identity.get("subject", "web-user"))
     role = str(identity.get("role", "viewer"))
 
@@ -223,7 +239,7 @@ def _handle_chat_deployment_command(
         store.record_event("deployment.chat.command.denied", deployment_id, {
             "actor": actor, "role": role, "action": action,
         })
-        return "This action requires the **admin** role. An operator can create plans, but only an admin can approve or execute infrastructure changes."
+        return "This action requires the **admin** role. An operator can create plans and hand the deployment ID to an admin, but only an admin can approve or execute infrastructure changes."
 
     if action in ("approve", "approve_deploy"):
         try:
@@ -254,7 +270,10 @@ def _handle_chat_deployment_command(
         f"- IaC fingerprint: {result.get('iac_fingerprint', '')}",
         f"- FaaS jobs queued: {len(result['jobs'])}",
     ]
-    lines.extend(f"- {job['component']} -> {job['function_name']} on {job.get('target_worker_id') or 'eligible worker'}" for job in result["jobs"])
+    lines.extend(
+        f"- {job['component']} -> {job['function_name']} on {job.get('target_worker_id') or 'eligible worker'}"
+        for job in result["jobs"]
+    )
     lines.append("Say **status** to follow the worker results. Provisioning is asynchronous; queued does not mean the resources are already ready.")
     return "\n".join(lines)
 
