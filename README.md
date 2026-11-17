@@ -359,6 +359,7 @@ This is an early engineering foundation, not a production-ready multi-tenant clo
 - Proxmox, Kubernetes and GAMGEE credentials are kept in worker environment variables in this build; production requires per-worker identity and a secrets manager.
 - PaaS requires an existing Kubernetes cluster; GAMGEE requires a compatible external installer endpoint.
 - HA, failover, autoscaling and load balancing currently produce policies/plans; they are not fully autonomous closed-loop operations.
+- PaaS HA plans are deliberately blocked until Kubernetes node/zone/control-plane/storage topology discovery can verify the cluster itself; multiple API-reachable workers are not treated as proof of cluster HA.
 
 Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 
