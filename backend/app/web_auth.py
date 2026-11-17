@@ -80,6 +80,8 @@ def read_session(cookie_value: str | None, now: int | None = None) -> dict[str, 
         if not hmac.compare_digest(supplied_signature, expected_signature):
             return None
         claims = json.loads(_b64decode(encoded))
+        if not isinstance(claims, dict):
+            return None
         current = int(time.time() if now is None else now)
         if claims.get("role") not in _ALLOWED_ROLES:
             return None
