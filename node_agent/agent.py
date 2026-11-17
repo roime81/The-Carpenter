@@ -12,7 +12,7 @@ from typing import Any
 
 import psutil
 
-from handlers import FUNCTION_VERSIONS, hypervisor_probe, execute
+from handlers import installed_capabilities, hypervisor_probe, execute
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carpenter-node")
@@ -20,7 +20,7 @@ logger = logging.getLogger("carpenter-node")
 
 def inventory() -> dict[str, Any]:
     memory = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
+    disk = psutil.disk_usage(os.path.abspath(os.sep))
     addresses: set[str] = set()
     interfaces = psutil.net_if_addrs()
     for addrs in interfaces.values():
@@ -41,7 +41,7 @@ def inventory() -> dict[str, Any]:
         "disk_total_bytes": disk.total,
         "disk_free_bytes": disk.free,
         "ipv4_addresses": sorted(addresses),
-        "capabilities": FUNCTION_VERSIONS,
+        "capabilities": installed_capabilities(),
         "discovery": {"hypervisor": hypervisor_probe({})},
         "failure_domain": os.getenv("CARPENTER_FAILURE_DOMAIN", "default"),
     }
