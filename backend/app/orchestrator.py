@@ -28,11 +28,44 @@ class CarpenterOrchestrator:
         register_builtin_functions(self.runtime)
 
     @staticmethod
-    def _number_from_prompt(prompt: str) -> int | None:
-        numbers = re.findall(r"\b\d+\b", prompt)
-        if not numbers:
-            return None
-        return min(max(int(numbers[0]), 1), 10000)
+    def _number_from_prompt(prompt: str, allow_first_number: bool = False) -> int | None:
+        match = re.search(
+            r"\b(\d+)\s*(?:vms?|virtual\s+machines?|replicas?)\b",
+            prompt,
+            re.IGNORECASE,
+        )
+        if match:
+            return min(max(int(match.group(1)), 1), 10000)
+        if allow_first_number:
+            match = re.search(r"\b(\d+)\b", prompt)
+            if match:
+                return min(max(int(match.group(1)), 1), 10000)
+        return None
+
+    @staticmethod
+    def _deterministic_sizing(prompt: str) -> dict[str, Any]:
+        """Extract only explicit sizing terms when no LLM slot is available."""
+        patterns = {
+            "vcpu_per_vm": r"\b(\d+)\s*(?:vcpus?|virtual\s+cpus?|cores?)\b",
+            "memory_gb_per_vm": r"\b(\d+)\s*(?:gb|gib)\s*(?:of\s*)?(?:ram|memory)\b",
+            "disk_gb_per_vm": r"\b(\d+)\s*(?:gb|gib)\s*(?:of\s*)?(?:disk|storage)\b",
+            "container_port": r"\bport\s*(\d{1,5})\b",
+        }
+        limits = {
+            "vcpu_per_vm": (1, 256),
+            "memory_gb_per_vm": (1, 4096),
+            "disk_gb_per_vm": (1, 100000),
+            "container_port": (1, 65535),
+        }
+        result: dict[str, Any] = {}
+        for field, pattern in patterns.items():
+            match = re.search(pattern, prompt, re.IGNORECASE)
+            if match:
+                value = int(match.group(1))
+                minimum, maximum = limits[field]
+                if minimum <= value <= maximum:
+                    result[field] = value
+        return result
 
     @staticmethod
     def _destination(prompt: str, slots: dict[str, Any]) -> str | None:
@@ -156,10 +189,15 @@ class CarpenterOrchestrator:
         agents = store.list_agents(online_only=True)
         phase = state.get("phase", "connect")
         slots = self.brain.extract_slots(prompt)
+        deterministic_sizing = self._deterministic_sizing(prompt)
+        for key, value in deterministic_sizing.items():
+            slots.setdefault(key, value)
 
         vm_count = slots.get("vm_count")
-        if vm_count is None and ("vm" in prompt.lower() or phase == "await_vm_count"):
-            vm_count = self._number_from_prompt(prompt)
+        if vm_count is None:
+            vm_count = self._number_from_prompt(
+                prompt, allow_first_number=(phase == "await_vm_count")
+            )
         if vm_count is not None:
             state["vm_count"] = vm_count
 
@@ -178,7 +216,11 @@ class CarpenterOrchestrator:
         if "high_availability" in slots:
             state["high_availability"] = slots["high_availability"]
         lowered = prompt.lower()
-        if any(term in lowered for term in ("high availability", "highly available", " ha ")):
+        if "high_availability" in slots:
+            state["high_availability"] = slots["high_availability"]
+        elif any(term in lowered for term in ("no ha", "without ha", "disable ha", "not highly available", "no high availability")):
+            state["high_availability"] = False
+        elif any(term in lowered for term in ("high availability", "highly available", " ha ")):
             state["high_availability"] = True
 
         if not agents:
