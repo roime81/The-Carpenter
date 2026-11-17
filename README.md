@@ -69,10 +69,10 @@ The interface stays deliberately small: one web prompt, one agent, and conversat
 | Distributed Native FaaS | Durable SQLite queue, versioned function matching, targeted worker polling, leases, retries/backoff, idempotency keys, dead-letter status | Shared PostgreSQL queue, isolated workers, signed function packages, multi-tenant quotas |
 | Infrastructure Discovery | Per-node CPU/RAM/disk/OS/network facts, KVM/libvirt/Proxmox detection, targeted read-only TCP probes | Hypervisor API inventory, IOPS/network benchmarks, GPU/NUMA and full failure-domain topology |
 | Intelligent Resource Engine | Per-host placement, CPU/RAM/disk headroom, HA spread, simple capacity forecast | Reservations, workload-aware bin packing, NUMA/GPU/IOPS and cost models |
-| Dual Cloud Deployment | GAMGEE signed installer handoff, Proxmox template clone/start for IaaS, Kubernetes Deployment/Service for PaaS, approval workflow | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation, multi-resource compensation |
+| Dual Cloud Deployment | Approved plans enqueue versioned GAMGEE, Proxmox and Kubernetes FaaS jobs on credentialed data-plane workers; deployment status reconciles from job results | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation, multi-resource compensation |
 | Autonomous Operations | Worker metrics, HA assessment, scale recommendations, failover placement and HAProxy config planning | Live SLO/alert pipeline, automatic adapter apply, health verification, fencing, drain, rollback and recovery |
 
-**Important distinction:** the code includes real adapter implementations for Proxmox and Kubernetes APIs, but a user's own infrastructure and credentials are required to exercise them. The GAMGEE path is an integration contract; it needs a compatible GAMGEE installer endpoint. The own-cloud PaaS path currently targets an existing Kubernetes cluster; it does not yet bootstrap Kubernetes on raw servers.
+**Important distinction:** provider operations are dispatched as native Python FaaS jobs to workers that advertise the required configured capability. Proxmox/Kubernetes/GAMGEE credentials live on those workers, not in the Carpenter control plane. The GAMGEE path is an integration contract; it needs a compatible installer endpoint. The own-cloud PaaS path targets an existing Kubernetes cluster; it does not yet bootstrap Kubernetes on raw servers.
 
 ---
 
@@ -165,7 +165,7 @@ Run one agent per server. Use meaningful failure domains such as `rack-a`, `rack
 
 The agent sends heartbeats every 30 seconds and polls the FaaS queue every 2 seconds by default. Adjust with `CARPENTER_HEARTBEAT_SECONDS` and `CARPENTER_WORKER_POLL_SECONDS`. Nodes older than `CARPENTER_AGENT_STALE_SECONDS` (default 90 seconds) are excluded from live capacity.
 
-Current worker functions are read-only: host inventory, hypervisor capability checks, storage/network inventory, metrics snapshots and tightly restricted TCP probes. The worker will not execute arbitrary shell or generated Python.
+Current built-in functions include read-only discovery/metrics plus provider functions for Proxmox VM creation, Kubernetes Deployment/Service apply and signed GAMGEE bootstrap. Provider functions are advertised only when the relevant worker has its endpoint and credentials configured. Workers execute only shipped, versioned Python handlers; they never execute arbitrary shell or model-generated Python.
 
 For service management and the exact worker protocol, see [docs/DISTRIBUTED-FAAS.md](docs/DISTRIBUTED-FAAS.md).
 
@@ -173,53 +173,47 @@ For service management and the exact worker protocol, see [docs/DISTRIBUTED-FAAS
 
 ## Configure cloud adapters
 
-Cloud adapter secrets are read by the Python control plane from environment variables. Keep them in a secret manager in production, not in source control or prompts.
+Provider credentials are stored on the specific data-plane execution workers, not in the Carpenter control-plane `.env`. A worker advertises its provider FaaS function only when its local configuration is complete. Restart the Node Agent after adding or changing a provider configuration.
 
 ### Option A — GAMGEE Cloud
 
-Set:
+On one trusted worker with network access to the GAMGEE installer endpoint:
 
-```dotenv
-CARPENTER_GAMGEE_INSTALLER_URL=https://gamgee-installer.example.com/api/v1/bootstrap
-CARPENTER_GAMGEE_INSTALLER_TOKEN=your-shared-hmac-signing-secret
+```bash
+export CARPENTER_GAMGEE_INSTALLER_URL="https://gamgee-installer.example.com/api/v1/bootstrap"
+export CARPENTER_GAMGEE_INSTALLER_TOKEN="your-hmac-signing-secret"
 ```
 
-The GAMGEE installer endpoint must implement the signed request contract in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). This repository does not invent or bundle GAMGEE's installer internals.
+That worker advertises `gamgee.bootstrap@1.0.0`. The installer endpoint must implement the signed request contract in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). This repository does not invent or bundle GAMGEE's installer internals.
 
 ### Option B — independent IaaS with Proxmox VE
 
-Set:
+On each Proxmox host that The Carpenter may use for VM placement:
 
-```dotenv
-CARPENTER_PROXMOX_URL=https://pve.example.com:8006
-CARPENTER_PROXMOX_TOKEN_ID=carpenter@pve!launcher
-CARPENTER_PROXMOX_TOKEN_SECRET=your-proxmox-api-token-secret
-CARPENTER_PROXMOX_NODE=pve-node-01
-CARPENTER_PROXMOX_TEMPLATE_VMID=9000
+```bash
+export CARPENTER_PROXMOX_URL="https://pve.example.com:8006"
+export CARPENTER_PROXMOX_TOKEN_ID="carpenter@pve!launcher"
+export CARPENTER_PROXMOX_TOKEN_SECRET="your-proxmox-api-token-secret"
+export CARPENTER_PROXMOX_NODE="pve-node-01"
+export CARPENTER_PROXMOX_TEMPLATE_VMID="9000"
 ```
 
-Prepare a cloud-init-capable VM template in Proxmox first. The node agent must report that configured Proxmox node as a Proxmox host. The first adapter targets one configured Proxmox node per deployment (not a multi-node cluster scheduler). The adapter clones the template, applies vCPU/RAM sizing, waits for Proxmox tasks and starts the VM.
+Prepare a cloud-init-capable VM template in Proxmox first. The agent must run on the configured Proxmox host. The worker advertises `compute.proxmox_deploy@1.0.0`. The adapter clones the template, applies vCPU/RAM sizing, waits for Proxmox tasks and starts one VM per FaaS job. Storage/network profiles, disk resizing and per-VM cloud-init customisation are not implemented yet.
 
 ### Option B — independent PaaS with Kubernetes
 
-Set:
-
-```dotenv
-CARPENTER_KUBERNETES_API_URL=https://kubernetes.example.com:6443
-CARPENTER_KUBERNETES_TOKEN=your-narrowly-scoped-service-account-token
-```
-
-This adapter deploys a generated Kubernetes Deployment and ClusterIP Service using server-side apply. The Kubernetes cluster and namespace must already exist. The service account should be restricted to the intended namespace.
-
-The current PaaS adapter does not bootstrap Kubernetes on bare metal. That is a future provider/bootstrap capability.
-
-After changing `.env`, recreate the control plane:
+On a worker that can reach the intended Kubernetes API:
 
 ```bash
-docker compose up -d --build
+export CARPENTER_KUBERNETES_API_URL="https://kubernetes.example.com:6443"
+export CARPENTER_KUBERNETES_TOKEN="your-narrowly-scoped-service-account-token"
 ```
 
-Full parameter details and adapter behaviour are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The worker advertises `platform.kubernetes_deploy@1.0.0`. It deploys a generated Kubernetes Deployment and ClusterIP Service using server-side apply. The Kubernetes cluster and namespace must already exist. The service account should be restricted to the intended namespace and required resource types.
+
+The current PaaS function does not bootstrap Kubernetes on bare metal. That is a future provider/bootstrap capability.
+
+Full worker-side environment details and adapter contracts are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -263,7 +257,7 @@ curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/execute \
   -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
 ```
 
-Execution is refused unless the stored plan passed its readiness checks and was approved. Hybrid deployments can partially succeed; compensation/rollback across independent providers is not yet implemented.
+Execution is refused unless the stored plan passed its readiness checks and was approved. The execute endpoint returns `queued` with FaaS job IDs; poll `GET /api/v1/deployments/DEPLOYMENT_ID` for linked worker status and results. A deployment becomes `succeeded` only after all linked jobs succeed. Hybrid deployments can partially succeed; compensation/rollback across independent providers is not yet implemented.
 
 ---
 
@@ -361,7 +355,7 @@ This is an early engineering foundation, not a production-ready multi-tenant clo
 - The queue is durable SQLite for a single control-plane instance. Multi-replica deployment needs shared transactional storage and distributed scheduling.
 - Function versions are matched, but worker packages are not yet cryptographically signed or verified.
 - FaaS is at-least-once. Mutating functions need idempotency and compensation.
-- The Proxmox, Kubernetes and GAMGEE secrets are environment values in this build; production requires a secrets manager.
+- Proxmox, Kubernetes and GAMGEE credentials are kept in worker environment variables in this build; production requires per-worker identity and a secrets manager.
 - PaaS requires an existing Kubernetes cluster; GAMGEE requires a compatible external installer endpoint.
 - HA, failover, autoscaling and load balancing currently produce policies/plans; they are not fully autonomous closed-loop operations.
 
@@ -385,7 +379,7 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 ```text
 .
 ├── backend/app/
-│   ├── adapters/              # Proxmox, Kubernetes, GAMGEE adapters
+│   ├── adapters/              # Direct adapter clients retained for reference/tests
 │   ├── runtime/               # Local Python function runtime
 │   ├── main.py                # FastAPI control plane
 │   ├── store.py               # SQLite queue, worker and inventory store
