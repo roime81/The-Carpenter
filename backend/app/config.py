@@ -19,15 +19,6 @@ class Settings:
     llm_base_url: str = os.getenv("CARPENTER_LLM_BASE_URL", "http://127.0.0.1:11434")
     llm_api_key: str = os.getenv("CARPENTER_LLM_API_KEY", "")
     llm_timeout_seconds: int = int(os.getenv("CARPENTER_LLM_TIMEOUT_SECONDS", "20"))
-    proxmox_url: str = os.getenv("CARPENTER_PROXMOX_URL", "")
-    proxmox_token_id: str = os.getenv("CARPENTER_PROXMOX_TOKEN_ID", "")
-    proxmox_token_secret: str = os.getenv("CARPENTER_PROXMOX_TOKEN_SECRET", "")
-    proxmox_node: str = os.getenv("CARPENTER_PROXMOX_NODE", "")
-    proxmox_template_vmid: int = int(os.getenv("CARPENTER_PROXMOX_TEMPLATE_VMID", "0"))
-    gamgee_installer_url: str = os.getenv("CARPENTER_GAMGEE_INSTALLER_URL", "")
-    gamgee_installer_token: str = os.getenv("CARPENTER_GAMGEE_INSTALLER_TOKEN", "")
-    kubernetes_api_url: str = os.getenv("CARPENTER_KUBERNETES_API_URL", "")
-    kubernetes_token: str = os.getenv("CARPENTER_KUBERNETES_TOKEN", "")
 
 
 settings = Settings()
