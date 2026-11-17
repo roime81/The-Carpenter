@@ -42,8 +42,14 @@ def _kubernetes_manifests(request: dict[str, Any], deployment_id: str) -> list[d
                             "image": image,
                             "ports": [{"name": "http", "containerPort": port, "protocol": "TCP"}],
                             "resources": {
-                                "requests": {"cpu": "100m", "memory": "128Mi"},
-                                "limits": {"cpu": "1", "memory": "1Gi"},
+                                "requests": {
+                                    "cpu": str(request["vcpu_per_vm"]),
+                                    "memory": f"{request['memory_gb_per_vm']}Gi",
+                                },
+                                "limits": {
+                                    "cpu": str(request["vcpu_per_vm"]),
+                                    "memory": f"{request['memory_gb_per_vm']}Gi",
+                                },
                             },
                         }]
                     },
@@ -147,11 +153,10 @@ def compile_iac_bundle(
                 ),
                 "spec": manifest,
             })
-        artifacts.append({
-            "filename": "kubernetes-manifests.yaml",
-            "content": yaml.safe_dump_all(manifests, sort_keys=False),
-            "format": "yaml",
-        })
+        artifacts.append(_artifact(
+            "kubernetes-manifests.yaml",
+            yaml.safe_dump_all(manifests, sort_keys=False),
+        ))
 
     graph = {
         "schema_version": SCHEMA_VERSION,
@@ -187,4 +192,43 @@ def _artifact(filename: str, content: str) -> dict[str, str]:
         "content": content,
         "format": "yaml",
         "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+    }
+
+
+
+def validate_iac_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
+    """Recalculate bundle and artifact hashes before a provider dispatch."""
+    if bundle.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError("Unsupported Carpenter IaC schema version")
+    resources = bundle.get("resources")
+    if not isinstance(resources, list) or any(
+        not isinstance(item, dict) or item.get("kind") not in SAFE_KINDS
+        for item in resources
+    ):
+        raise ValueError("IaC bundle contains an unsupported resource kind")
+    if bundle.get("validation", {}).get("provider_secrets_embedded") is not False:
+        raise ValueError("Provider credentials must not be embedded in IaC")
+    if bundle.get("validation", {}).get("generated_code_embedded") is not False:
+        raise ValueError("Executable/generated code is not an IaC resource")
+    graph = {
+        "schema_version": bundle["schema_version"],
+        "deployment_id": bundle["deployment_id"],
+        "intent": bundle["intent"],
+        "resources": resources,
+    }
+    expected = hashlib.sha256(_canonical(graph)).hexdigest()
+    if bundle.get("fingerprint") != expected:
+        raise ValueError("IaC bundle fingerprint does not match its resource graph")
+    for artifact in bundle.get("artifacts", []):
+        content = artifact.get("content", "")
+        if hashlib.sha256(content.encode("utf-8")).hexdigest() != artifact.get("sha256"):
+            raise ValueError(f"IaC artifact hash mismatch: {artifact.get('filename', 'unknown')}")
+        if artifact.get("format") != "yaml":
+            raise ValueError("Only YAML IaC artifacts are supported by this compiler")
+        list(yaml.safe_load_all(content))
+    return {
+        "valid": True,
+        "fingerprint": expected,
+        "resource_count": len(resources),
+        "artifact_count": len(bundle.get("artifacts", [])),
     }
