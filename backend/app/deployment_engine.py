@@ -112,9 +112,10 @@ class DeploymentEngine:
             if settings.proxmox_template_vmid <= 0:
                 raise RuntimeError("CARPENTER_PROXMOX_TEMPLATE_VMID must reference a prepared cloud-init template.")
             created = []
-            next_vmid = adapter.next_vmid()
             for index in range(request["vm_count"]):
-                vmid = next_vmid + index
+                # Ask Proxmox for a free ID before every clone instead of assuming
+                # sequential IDs remain free during concurrent VM activity.
+                vmid = adapter.next_vmid()
                 name = f"{request['name']}-{index + 1:03d}"
                 cloned = adapter.clone_vm(
                     settings.proxmox_node, settings.proxmox_template_vmid, vmid, name,
