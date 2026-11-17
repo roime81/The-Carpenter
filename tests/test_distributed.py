@@ -62,6 +62,25 @@ class DistributedQueueTests(unittest.TestCase):
         )
         self.assertEqual(first["job_id"], second["job_id"])
 
+    def test_discovery_results_survive_regular_heartbeat(self):
+        store.merge_agent_discovery(
+            "worker-node-0001", "discovery.hypervisor_probe",
+            {"kvm_device": True, "proxmox_host": True},
+        )
+        store.merge_agent_discovery(
+            "worker-node-0001", "discovery.storage_network",
+            {"partitions": [{"mountpoint": "/data"}]},
+        )
+        store.upsert_agent({
+            "node_id": "worker-node-0001",
+            "hostname": "worker-01",
+            "capabilities": {"discovery.host_inventory": "1.0.0"},
+            "discovery": {"hypervisor": {"kvm_device": True}},
+        })
+        current = store.get_agent("worker-node-0001")
+        self.assertTrue(current["discovery"]["hypervisor"]["proxmox_host"])
+        self.assertEqual(current["discovery"]["storage_network"]["partitions"][0]["mountpoint"], "/data")
+
     def test_targeted_job_is_only_claimed_by_target_node(self):
         store.upsert_agent({
             "node_id": "worker-node-0002",
