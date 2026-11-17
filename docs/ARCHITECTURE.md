@@ -47,6 +47,7 @@ The UI is a server-rendered Python web application. It has no Node.js applicatio
 ## Control-plane responsibilities
 
 - Conversation and intent capture.
+- LLM gateway for constrained extraction of explicit VM count, destination and cloud model.
 - Infrastructure enrolment and inventory aggregation.
 - Capacity assessment and placement planning.
 - Target selection: GAMGEE or own cloud.
@@ -67,8 +68,8 @@ The UI is a server-rendered Python web application. It has no Node.js applicatio
 
 1. User describes the desired outcome.
 2. User enrolls each server or cluster through the outbound node agent or a future provider connector.
-3. The Carpenter verifies agent identity and receives a host inventory heartbeat.
-4. The assessment functions calculate aggregate CPU, memory and storage indicators. Placement must later include NUMA, storage IOPS, network, GPU, failure-domain and reserved-capacity constraints.
+3. The Carpenter verifies the shared enrolment token and receives a host inventory heartbeat. Unique per-node identity and mTLS are production requirements.
+4. The assessment functions calculate aggregate CPU and memory. Disk is collected but not yet used by the placement calculation. Placement must later include NUMA, storage IOPS, network, GPU, hypervisor, failure-domain and reserved-capacity constraints.
 5. The Carpenter asks how many VMs or workloads are required.
 6. It asks whether to onboard GAMGEE or build an independent cloud.
 7. It asks for IaaS, PaaS or hybrid.
@@ -79,10 +80,9 @@ The UI is a server-rendered Python web application. It has no Node.js applicatio
 ## Native Python FaaS
 
 The function runtime is the common execution substrate. Each operation is an allow-listed Python function with:
-- A unique name and typed input/output contract.
-- Bounded execution time.
-- Invocation identifier and structured result.
-- Idempotency key support (process-local in the MVP).
+- A unique name and structured input/output contract.
+- Caller wait timeout and invocation identifier.
+- Idempotency key support (process-local and best-effort in the MVP).
 - Policy checks before privileged actions.
 - Audit and telemetry hooks.
 
@@ -93,7 +93,7 @@ Initial functions:
 
 Future function domains include discovery, image management, VM lifecycle, network configuration, storage lifecycle, load-balancer updates, backup, recovery and GAMGEE bootstrap.
 
-The current runtime is local and process-based. It is not yet a distributed FaaS scheduler. The roadmap adds durable queues, worker registration, leases, retries, dead-letter handling, and distributed placement.
+The current runtime uses a local thread pool. A timeout does not forcibly terminate a running Python thread. Only trusted, short-running functions should execute here. Production needs isolated worker processes or containers, durable queues, leases, retries, dead-letter handling and distributed placement.
 
 ## Availability and elasticity
 
