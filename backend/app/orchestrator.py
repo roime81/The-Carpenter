@@ -4,23 +4,37 @@ import re
 from typing import Any
 
 from app import store
+from app.config import settings
 from app.functions import register_builtin_functions
+from app.llm import ModelGateway
 from app.runtime.faas import FunctionRuntime
 
 
 class CarpenterOrchestrator:
-    """Conversation coordinator. The model may advise; policy and functions decide."""
+    """Conversation coordinator. The model extracts intent; policy and functions decide."""
 
     def __init__(self) -> None:
         self.runtime = FunctionRuntime()
+        self.brain = ModelGateway()
         register_builtin_functions(self.runtime)
 
     def respond(self, session_id: str, prompt: str) -> str:
         state = store.get_state(session_id)
         agents = store.list_agents()
         phase = state.get("phase", "connect")
+        slots = self.brain.extract_slots(prompt)
 
         if not agents:
+            # Preserve explicit requirements while the user is connecting the data plane.
+            numbers = re.findall(r"\b\d+\b", prompt)
+            if "vm_count" in slots:
+                state["vm_count"] = slots["vm_count"]
+            elif numbers and "vm" in prompt.lower():
+                state["vm_count"] = min(max(int(numbers[0]), 1), 10000)
+            if "destination" in slots:
+                state["destination"] = slots["destination"]
+            if "service_model" in slots:
+                state["service_model"] = slots["service_model"]
             state["phase"] = "connect"
             store.set_state(session_id, state)
             return (
@@ -40,15 +54,29 @@ class CarpenterOrchestrator:
         )["output"]
 
         if phase in ("connect", "await_vm_count"):
-            numbers = re.findall(r"\b\d+\b", prompt)
-            if phase == "await_vm_count" and numbers:
-                state["vm_count"] = min(max(int(numbers[0]), 1), 10000)
+            vm_count = slots.get("vm_count") or state.get("vm_count")
+            if not vm_count:
+                numbers = re.findall(r"\b\d+\b", prompt)
+                if phase == "await_vm_count" and numbers:
+                    vm_count = min(max(int(numbers[0]), 1), 10000)
+            if vm_count:
+                state["vm_count"] = vm_count
+                if slots.get("destination"):
+                    state["destination"] = slots["destination"]
+                if slots.get("service_model"):
+                    state["service_model"] = slots["service_model"]
+                if state.get("destination"):
+                    state["phase"] = "await_service_model"
+                    store.set_state(session_id, state)
+                    target = "GAMGEE Cloud" if state["destination"] == "gamgee" else "your own cloud"
+                    return f"I have recorded {vm_count} VM(s). The target is **{target}**. Should I design **IaaS**, **PaaS**, or **hybrid**?"
                 state["phase"] = "await_destination"
                 store.set_state(session_id, state)
                 return (
-                    f"I have recorded a request for {state['vm_count']} VM(s). "
+                    f"I have recorded a request for {vm_count} VM(s). "
                     "Would you like me to **onboard GAMGEE Cloud**, or build **your own cloud**?"
                 )
+
             state["phase"] = "await_vm_count"
             store.set_state(session_id, state)
             return (
@@ -63,9 +91,10 @@ class CarpenterOrchestrator:
 
         if phase == "await_destination":
             lowered = prompt.lower()
-            if "gamgee" in lowered:
+            destination = slots.get("destination")
+            if destination == "gamgee" or "gamgee" in lowered:
                 state["destination"] = "gamgee"
-            elif any(word in lowered for word in ("own cloud", "my cloud", "custom", "independent")):
+            elif destination == "own_cloud" or any(word in lowered for word in ("own cloud", "my cloud", "custom", "independent")):
                 state["destination"] = "own_cloud"
             else:
                 return "Please choose **GAMGEE Cloud** or **your own cloud**. Both remain available."
@@ -76,13 +105,15 @@ class CarpenterOrchestrator:
 
         if phase == "await_service_model":
             lowered = prompt.lower()
-            if "hybrid" in lowered:
-                model = "hybrid"
-            elif "paas" in lowered:
-                model = "paas"
-            elif "iaas" in lowered:
-                model = "iaas"
-            else:
+            model = slots.get("service_model")
+            if model not in ("iaas", "paas", "hybrid"):
+                if "hybrid" in lowered:
+                    model = "hybrid"
+                elif "paas" in lowered:
+                    model = "paas"
+                elif "iaas" in lowered:
+                    model = "iaas"
+            if model not in ("iaas", "paas", "hybrid"):
                 return "Choose **IaaS**, **PaaS**, or **hybrid**. I can explain the trade-offs before you decide."
 
             state["service_model"] = model
