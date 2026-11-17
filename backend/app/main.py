@@ -19,6 +19,10 @@ from app.models import (
 from app.orchestrator import CarpenterOrchestrator
 from app.resource_engine import plan_placement, forecast_capacity
 from app.worker_catalogue import register_worker_functions
+from app.deployment_models import DeploymentRequest, DeploymentApproval
+from app.deployment_store import create as create_deployment_record, get as get_deployment_record, approve as approve_deployment_record, set_status as set_deployment_status
+from app.deployment_engine import DeploymentEngine
+from app.operations_engine import assess_high_availability, recommend_action
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
@@ -217,6 +221,111 @@ def operation_events(
 ) -> dict[str, Any]:
     _require_admin(x_carpenter_token)
     return {"events": store.list_events(limit)}
+
+
+@app.post("/api/v1/deployments/plan")
+def create_deployment_plan(
+    request: DeploymentRequest,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    hosts = store.list_agents(online_only=True)
+    plan = DeploymentEngine().build_plan(request.model_dump(), hosts)
+    record = create_deployment_record(request.destination, request.service_model, plan)
+    store.record_event("deployment.plan.created", record["deployment_id"], {
+        "destination": request.destination,
+        "service_model": request.service_model,
+        "ready_to_execute": plan["ready_to_execute_after_approval"],
+    })
+    return record
+
+
+@app.get("/api/v1/deployments/{deployment_id}")
+def get_deployment(
+    deployment_id: str,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    record = get_deployment_record(deployment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Deployment plan not found")
+    return record
+
+
+@app.post("/api/v1/deployments/{deployment_id}/approve")
+def approve_deployment(
+    deployment_id: str,
+    request: DeploymentApproval,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    record = approve_deployment_record(deployment_id, request.approved_by)
+    if not record:
+        raise HTTPException(status_code=409, detail="Only a planned deployment can be approved.")
+    return record
+
+
+@app.post("/api/v1/deployments/{deployment_id}/execute")
+def execute_deployment(
+    deployment_id: str,
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    record = get_deployment_record(deployment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    if record["status"] != "approved":
+        raise HTTPException(status_code=409, detail="Deployment must be approved before execution.")
+    if not record["plan"].get("ready_to_execute_after_approval"):
+        raise HTTPException(status_code=409, detail="Deployment plan failed capacity, HA, or adapter readiness checks.")
+    set_deployment_status(deployment_id, "executing")
+    store.record_event("deployment.execution.started", deployment_id, {"destination": record["destination"]})
+    try:
+        result = DeploymentEngine().execute(deployment_id, record["plan"])
+        set_deployment_status(deployment_id, "succeeded")
+        store.record_event("deployment.execution.succeeded", deployment_id, result)
+        return {"deployment_id": deployment_id, "status": "succeeded", "result": result}
+    except Exception as exc:
+        set_deployment_status(deployment_id, "failed")
+        store.record_event("deployment.execution.failed", deployment_id, {"error": str(exc)})
+        raise HTTPException(status_code=502, detail=f"Deployment adapter failed: {type(exc).__name__}: {exc}") from exc
+
+
+@app.post("/api/v1/operations/ha-assessment")
+def ha_assessment(
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    return assess_high_availability(store.list_agents(online_only=True))
+
+
+@app.post("/api/v1/operations/recommendation")
+def operations_recommendation(
+    body: dict[str, Any],
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    result = recommend_action(body.get("metrics", {}), body.get("policy", {}))
+    store.record_event("operations.recommendation.created", None, result)
+    return result
+
+
+@app.post("/api/v1/operations/metrics/collect")
+def collect_metrics(
+    x_carpenter_token: str = Header(default="", alias="X-Carpenter-Token"),
+) -> dict[str, Any]:
+    _require_admin(x_carpenter_token)
+    workers = store.list_agents(online_only=True)
+    jobs = [
+        store.enqueue_job(
+            "operations.metrics_snapshot", "1.0.0", {},
+            max_attempts=3, idempotency_key=f"metrics-{node['node_id']}-{uuid.uuid4()}",
+        )
+        for node in workers
+        if node.get("capabilities", {}).get("operations.metrics_snapshot") == "1.0.0"
+    ]
+    store.record_event("operations.metrics.queued", None, {"job_ids": [job["job_id"] for job in jobs]})
+    return {"jobs": jobs, "worker_count": len(jobs)}
 
 
 @app.get("/", response_class=HTMLResponse)
