@@ -342,6 +342,15 @@ def execute_deployment(
         raise HTTPException(status_code=409, detail="Deployment must be approved before execution.")
     if not record["plan"].get("ready_to_execute_after_approval"):
         raise HTTPException(status_code=409, detail="Deployment plan failed capacity, HA, or adapter readiness checks.")
+    # Re-assess immediately before mutation. A stale approval cannot override lost
+    # capacity, worker/hypervisor disappearance or changed adapter configuration.
+    current_plan = DeploymentEngine().build_plan(
+        record["plan"]["requested"], store.list_agents(online_only=True)
+    )
+    if not current_plan.get("ready_to_execute_after_approval"):
+        raise HTTPException(status_code=409, detail="Infrastructure readiness changed after approval; create a new plan.")
+    if current_plan.get("placement") != record["plan"].get("placement"):
+        raise HTTPException(status_code=409, detail="Placement changed after approval; create and approve a fresh plan.")
     set_deployment_status(deployment_id, "executing")
     store.record_event("deployment.execution.started", deployment_id, {"destination": record["destination"]})
     try:
