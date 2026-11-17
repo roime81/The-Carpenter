@@ -5,6 +5,8 @@ from typing import Any
 from app import store
 from app.operations_engine import assess_high_availability
 from app.resource_engine import plan_placement
+from app.iac_engine import compile_iac_bundle
+import uuid
 
 
 class DeploymentEngine:
@@ -18,7 +20,10 @@ class DeploymentEngine:
             and host.get("capabilities", {}).get(function_name) == "1.0.0"
         ]
 
-    def build_plan(self, request: dict[str, Any], hosts: list[dict[str, Any]]) -> dict[str, Any]:
+    def build_plan(
+        self, request: dict[str, Any], hosts: list[dict[str, Any]],
+        deployment_id: str | None = None,
+    ) -> dict[str, Any]:
         destination = request["destination"]
         model = request["service_model"]
         needs_vms = destination == "gamgee" or model in ("iaas", "hybrid")
@@ -92,7 +97,11 @@ class DeploymentEngine:
 
         capacity_ready = bool(hosts) and (placement is None or bool(placement["feasible"]))
         ha_ready = all(item["ha_ready"] for item in ha_assessments.values()) if ha_assessments else True
+        plan_id = deployment_id or str(uuid.uuid4())
+        iac_bundle = compile_iac_bundle(plan_id, request, placement, execution_workers)
         return {
+            "deployment_id": plan_id,
+            "iac_bundle": iac_bundle,
             "destination": destination,
             "service_model": model,
             "requested": request,
@@ -106,6 +115,15 @@ class DeploymentEngine:
             "adapter_ready": adapter_ready,
             "ready_to_execute_after_approval": capacity_ready and ha_ready and adapter_ready,
             "execution_status": "plan_only",
+            "agent_pipeline": [
+                "natural_language_intent",
+                "environment_discovery",
+                "desired_state_planning",
+                "iac_generation",
+                "static_and_policy_validation",
+                "distributed_provider_execution",
+                "result_reconciliation",
+            ],
             "limitations": [
                 "No infrastructure changes are made while creating this plan.",
                 "Provider mutations run as versioned Python FaaS jobs on selected data-plane workers.",
@@ -127,20 +145,27 @@ class DeploymentEngine:
         targets = plan["execution_workers"]
         queued_jobs: list[dict[str, Any]] = []
 
+        iac_bundle = plan.get("iac_bundle")
+        if not isinstance(iac_bundle, dict) or not iac_bundle.get("validation", {}).get("schema_valid"):
+            raise RuntimeError("A validated internal IaC bundle is required before dispatch.")
+
         if destination == "gamgee":
             worker_ids = targets["gamgee"]
             if not worker_ids:
                 raise RuntimeError("No online worker advertises gamgee.bootstrap@1.0.0")
+            gamgee_resource = next(
+                item for item in iac_bundle["resources"] if item["provider"] == "gamgee"
+            )
             payload = {
                 "deployment_id": deployment_id,
                 "action": "bootstrap-or-expand",
                 "service_model": model,
                 "requested": request,
-                "placement": plan.get("placement"),
+                "iac_fingerprint": iac_bundle["fingerprint"],
+                "iac_resource": gamgee_resource,
+                "iac_artifacts": iac_bundle["artifacts"],
                 "hosts": plan.get("host_count"),
-                "target_nodes": [
-                    item["host_id"] for item in (plan.get("placement") or {}).get("placements", [])
-                ],
+                "target_nodes": gamgee_resource["spec"].get("target_nodes", []),
             }
             queued_jobs.append({
                 "component": "gamgee",
@@ -152,20 +177,24 @@ class DeploymentEngine:
             })
         else:
             if model in ("iaas", "hybrid"):
-                for index, placement in enumerate((plan.get("placement") or {}).get("placements", []), start=1):
-                    worker_id = placement["host_id"]
-                    vm_name = f"{request['name']}-{index:03d}"
-                    vm_definition = {
-                        "name": vm_name,
-                        "vcpu": placement["vcpu"],
-                        "memory_gb": placement["memory_gb"],
-                        "disk_gb": placement["disk_gb"],
-                    }
+                vm_resources = [
+                    item for item in iac_bundle["resources"]
+                    if item["provider"] == "proxmox" and item["kind"] == "virtual_machine"
+                ]
+                for resource in vm_resources:
+                    worker_id = resource["worker_id"]
+                    vm_definition = resource["spec"]
+                    vm_name = vm_definition["name"]
                     queued_jobs.append({
                         "component": f"proxmox:{worker_id}:{vm_name}",
                         **store.enqueue_job(
                             "compute.proxmox_deploy", "1.0.0",
-                            {"deployment_id": deployment_id, "vms": [vm_definition]},
+                            {
+                                "deployment_id": deployment_id,
+                                "iac_fingerprint": iac_bundle["fingerprint"],
+                                "iac_resource": resource,
+                                "vms": [vm_definition],
+                            },
                             max_attempts=3, priority=10,
                             idempotency_key=f"{deployment_id}:proxmox:{worker_id}:{vm_name}",
                             target_worker_id=worker_id,
@@ -176,17 +205,18 @@ class DeploymentEngine:
                 worker_ids = targets["kubernetes"]
                 if not worker_ids:
                     raise RuntimeError("No online worker advertises platform.kubernetes_deploy@1.0.0")
+                manifests = [
+                    item["spec"] for item in iac_bundle["resources"]
+                    if item["provider"] == "kubernetes"
+                ]
                 queued_jobs.append({
                     "component": "kubernetes",
                     **store.enqueue_job(
                         "platform.kubernetes_deploy", "1.0.0",
                         {
                             "deployment_id": deployment_id,
-                            "name": request["name"],
-                            "namespace": request["namespace"],
-                            "container_image": request["container_image"],
-                            "replicas": request["vm_count"],
-                            "container_port": request["container_port"],
+                            "iac_fingerprint": iac_bundle["fingerprint"],
+                            "manifests": manifests,
                         },
                         max_attempts=3, priority=10,
                         idempotency_key=f"{deployment_id}:kubernetes",
