@@ -103,13 +103,13 @@ cd The-Carpenter
 cp .env.example .env
 ```
 
-Generate two different secrets:
+Generate separate high-entropy values:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Put one generated value in `CARPENTER_ADMIN_TOKEN` and a different one in `CARPENTER_AGENT_ENROLLMENT_TOKEN` in `.env`. Do not use the example placeholders.
+Set unique values for the required `CARPENTER_ADMIN_TOKEN`, `CARPENTER_AGENT_ENROLLMENT_TOKEN` and `CARPENTER_SESSION_SECRET`. Optionally configure different `CARPENTER_OPERATOR_TOKEN` and `CARPENTER_VIEWER_TOKEN` credentials. Never reuse the worker enrollment token as a browser credential. Do not use the example placeholders.
 
 For a local-only demo, leave worker provider credentials empty. You can still run the prompt UI, inspect the health endpoint, generate IaC plans and inspect the generated resource graph. Actual provisioning requires enrolled execution workers and configured provider endpoints.
 
