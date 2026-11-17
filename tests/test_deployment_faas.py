@@ -68,6 +68,32 @@ class DeploymentFaasTests(unittest.TestCase):
         self.assertTrue(plan["iac_validation"]["valid"])
         self.assertEqual(plan["iac_bundle"]["resource_count"], 2)
 
+    def test_deployment_cannot_enter_executing_twice(self):
+        host = proxmox_worker("pve-worker-01", "rack-a")
+        request = {
+            "destination": "own_cloud",
+            "service_model": "iaas",
+            "vm_count": 1,
+            "vcpu_per_vm": 2,
+            "memory_gb_per_vm": 4,
+            "disk_gb_per_vm": 40,
+            "high_availability": False,
+            "name": "single-node",
+            "namespace": "default",
+            "container_image": None,
+            "container_port": 8080,
+        }
+        plan = DeploymentEngine().build_plan(request, [host])
+        deployment = create("own_cloud", "iaas", plan)
+        approve(deployment["deployment_id"], "test-admin")
+
+        first_transition = set_status(deployment["deployment_id"], "executing")
+        self.assertEqual(first_transition["status"], "executing")
+        duplicate_transition = set_status(deployment["deployment_id"], "executing")
+        self.assertIsNone(duplicate_transition)
+        failed_transition = set_status(deployment["deployment_id"], "failed")
+        self.assertEqual(failed_transition["status"], "failed")
+
     def test_paas_ha_is_not_claimed_without_kubernetes_cluster_topology(self):
         kubernetes_workers = [
             {
