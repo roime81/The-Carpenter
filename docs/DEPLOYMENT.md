@@ -43,7 +43,7 @@ Headers:
 - `X-Carpenter-Timestamp`: Unix timestamp string.
 - `X-Carpenter-Signature`: `sha256={hex(HMAC-SHA256(secret, timestamp + "." + raw_body))}`.
 
-The GAMGEE installer endpoint must verify the HMAC in constant time, reject stale timestamps (recommended five-minute window), enforce idempotency on `deployment_id`, return JSON with an operation ID, and expose a status/reporting API or return a completed result. The Carpenter does not guess GAMGEE's internal install commands or API.
+The GAMGEE installer endpoint must verify the HMAC in constant time, reject stale timestamps (recommended five-minute window), enforce idempotency on `deployment_id`, and return a terminal JSON status of `succeeded` or `completed` with an operation ID/result. The current worker function does not poll a separate asynchronous status API; an `accepted` or `queued` response is treated as incomplete and retried. The endpoint must complete the bootstrap/expand operation synchronously within the worker timeout, or a later Carpenter release must add a dedicated GAMGEE status-poll function. It must not trust arbitrary function/code fields from the request.
 
 ### Option B — Own Cloud IaaS with Proxmox VE
 
