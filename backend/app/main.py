@@ -703,7 +703,7 @@ def prompt(
         return RedirectResponse("/", status_code=303)
     if len(content) > 8000:
         raise HTTPException(status_code=413, detail="Prompt is too long.")
-    session_id = _conversation_id(request)
+    session_id = _conversation_id(identity)
     store.add_message(session_id, "user", content)
     answer = _handle_chat_deployment_command(session_id, identity, content)
     if answer is None:
