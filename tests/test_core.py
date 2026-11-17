@@ -6,11 +6,11 @@ from app.llm import ModelGateway
 
 class FunctionTests(unittest.TestCase):
     def test_capacity_keeps_twenty_percent_headroom(self):
-        result = assess_capacity([{
+        result = assess_capacity({"hosts": [{
             "cpu_cores": 16,
             "memory_total_bytes": 100 * 1024**3,
             "memory_available_bytes": 80 * 1024**3,
-        }])
+        }]})
         self.assertEqual(result["total_cpu_cores"], 16)
         self.assertEqual(result["allocatable_memory_gb"], 80.0)
 
