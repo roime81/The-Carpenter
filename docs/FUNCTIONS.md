@@ -2,7 +2,7 @@
 
 ## Function model
 
-All infrastructure capabilities are represented as versioned Python functions. The model selects intent; a typed planner chooses registered functions; workers execute only built-in or explicitly installed handlers. No generated shell or Python code is run.
+All infrastructure capabilities are represented as versioned Python functions. The AI Cloud Deployment Agent interprets natural-language goals; the deterministic IaC compiler creates a provider resource graph; the deployment policy selects registered functions; workers execute only built-in or explicitly installed handlers. Users do not author IaC manually for the supported resource kinds. No generated shell or Python code is run.
 
 ## Distributed worker functions
 
@@ -36,6 +36,12 @@ Provider functions are advertised only when the worker has the relevant local en
 7. Expired/failed jobs are retried with exponential backoff; exhausted jobs become `dead`.
 
 The delivery model is at-least-once. A worker can crash after doing work but before reporting success. Provider handlers must therefore use stable operation IDs, deterministic resource names, reconciliation before creation and idempotency keys. Proxmox uses deterministic VM names to recover a partially completed VM; Kubernetes uses server-side apply; the GAMGEE installer must enforce idempotency by Carpenter deployment ID.
+
+## Internal IaC lifecycle
+
+The IaC compiler emits a `carpenter.iac/v1` bundle containing the desired-state request, provider resource graph, YAML artifacts, artifact hashes and an immutable SHA-256 fingerprint. The control plane validates the bundle before dispatch. The Kubernetes worker applies the generated Deployment and Service documents after validating their supported shapes. The Proxmox worker receives the generated VM resource. The GAMGEE worker receives the generated bootstrap plan.
+
+Inspect the bundle at `GET /api/v1/deployments/{deployment_id}/iac`. The user reviews it for transparency; authoring or uploading the YAML is not required.
 
 ## Deployment FaaS lifecycle
 
