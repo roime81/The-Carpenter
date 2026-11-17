@@ -16,6 +16,8 @@ services:
     depends_on:
       volume-init:
         condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       CARPENTER_APP_NAME: The Carpenter
       CARPENTER_ENV: ${CARPENTER_ENV:-development}
