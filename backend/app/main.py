@@ -36,7 +36,7 @@ BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
     title="The Carpenter",
     description="A prompt-driven Python cloud control plane.",
-    version="0.2.0",
+    version="0.3.0",
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -63,7 +63,7 @@ def _require_admin(token: str) -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "the-carpenter", "version": "0.2.0"}
+    return {"status": "ok", "service": "the-carpenter", "version": "0.3.0"}
 
 
 @app.get("/api/v1/functions")
