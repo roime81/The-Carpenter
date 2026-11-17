@@ -191,7 +191,11 @@ def upsert_agent(inventory: dict[str, Any]) -> None:
             # heartbeat must not erase information collected between heartbeats.
             previous_discovery = previous.get("discovery", {})
             current_discovery = inventory.get("discovery", {})
-            inventory["discovery"] = {**previous_discovery, **current_discovery}
+            merged_discovery = {**previous_discovery, **current_discovery}
+            for key, value in current_discovery.items():
+                if isinstance(value, dict) and isinstance(previous_discovery.get(key), dict):
+                    merged_discovery[key] = {**previous_discovery[key], **value}
+            inventory["discovery"] = merged_discovery
         connection.execute(
             """
             INSERT INTO agents(node_id, hostname, inventory_json, first_seen, last_seen)
