@@ -219,12 +219,25 @@ def _wait_proxmox_task(node: str, task: Any, timeout_seconds: int = 120) -> None
 def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     deployment_id = str(payload.get("deployment_id", ""))
     vm_definitions = payload.get("vms", [])
+    iac_resource = payload.get("iac_resource")
+    iac_fingerprint = str(payload.get("iac_fingerprint", ""))
     node = os.environ["CARPENTER_PROXMOX_NODE"]
     template_vmid = int(os.environ["CARPENTER_PROXMOX_TEMPLATE_VMID"])
     if not re.fullmatch(r"[a-f0-9-]{16,64}", deployment_id):
         raise ValueError("A valid Carpenter deployment ID is required")
     if not isinstance(vm_definitions, list) or len(vm_definitions) != 1:
         raise ValueError("A Proxmox worker job must contain exactly one VM definition")
+    if not re.fullmatch(r"[a-f0-9]{64}", iac_fingerprint):
+        raise ValueError("A valid compiled IaC fingerprint is required")
+    if (
+        not isinstance(iac_resource, dict)
+        or iac_resource.get("provider") != "proxmox"
+        or iac_resource.get("kind") != "virtual_machine"
+        or not isinstance(iac_resource.get("spec"), dict)
+    ):
+        raise ValueError("A generated Proxmox virtual-machine IaC resource is required")
+    if vm_definitions[0] != iac_resource["spec"]:
+        raise ValueError("VM job payload does not match its generated IaC resource")
     if template_vmid <= 0:
         raise ValueError("CARPENTER_PROXMOX_TEMPLATE_VMID must be a prepared cloud-init template")
 
@@ -276,6 +289,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "deployment_id": deployment_id,
+        "iac_fingerprint": iac_fingerprint,
         "node": node,
         "created_or_reconciled": results,
         "execution_status": "succeeded",
