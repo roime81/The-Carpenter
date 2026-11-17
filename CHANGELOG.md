@@ -15,6 +15,7 @@ All notable changes to The Carpenter are documented here.
 - Provider credentials are kept on the selected data-plane workers and are not passed through the control plane.
 - Approved deployment execution dispatches versioned FaaS jobs and reconciles deployment status from worker results.
 - Added one-VM-per-job Proxmox dispatch and a separate worker heartbeat thread for long-running operations.
+- Added a conservative Kubernetes HA gate: PaaS HA is not reported ready until cluster topology can be inspected.
 
 ### Infrastructure Discovery
 - Added CPU, memory, disk, OS, architecture and IP inventory.
