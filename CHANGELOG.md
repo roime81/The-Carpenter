@@ -40,11 +40,22 @@ All notable changes to The Carpenter are documented here.
 - Added validated HAProxy backend configuration planning.
 - Added operation audit events.
 
+### Prompt and integration
+- Connected the prompt workflow to queue targeted discovery for newly online nodes.
+- Connected user intent to saved deployment plans through the dual-cloud deployment engine.
+- Expanded constrained LLM extraction for VM sizing, HA, container image, port and workload names.
+- Added deterministic VM-count and sizing parsing when no model is configured.
+- Preserved detailed hypervisor/storage/network discovery results across routine heartbeats.
+- Added a forward SQLite schema migration for node-targeted jobs.
+- Revalidated capacity and placement immediately before approved deployment execution.
+
 ### Documentation and engineering
 - Rewrote README with installation, worker enrolment, adapter configuration and API examples.
 - Added architecture, FaaS, discovery, resource, deployment, operations and security guides.
-- Added unit tests for queue leases, retries, idempotency, targeted workers, placement, HA and adapter safety.
-- Updated GitHub Actions Python CI.
+- Added unit tests for queue leases, retries, idempotency, targeted workers, discovery persistence,
+  placement, HA, adapter safety and prompt intent parsing.
+- Expanded GitHub Actions to compile Python modules, import-check the API/worker, and run tests.
+- Latest CI run: 23 unit tests passed; Python compilation and control-plane/worker imports passed.
 
 ### Known limitations
 - SQLite is for a single control-plane instance; shared multi-replica queue storage is not yet implemented.
