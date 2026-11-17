@@ -40,7 +40,7 @@ The worker sends a heartbeat every 30 seconds by default and polls for jobs ever
 - `CARPENTER_WORKER_POLL_SECONDS`: queue poll interval, minimum 1.
 - `LOG_LEVEL`: Python log level.
 
-Run the process under a dedicated unprivileged service account and supervisor (systemd, Windows Service wrapper or an approved service manager). It does not need root for the current read-only functions.
+Run the process under a dedicated service account and supervisor (systemd, Windows Service wrapper or an approved service manager). Discovery functions do not need root. Provider credentials are optional and belong only on the worker authorised to execute that provider; use a secret manager or protected service environment in production.
 
 ## Function registration and versions
 
@@ -49,7 +49,15 @@ The control plane registers function name/version pairs. Workers advertise a dic
 - It advertises the exact function name and version.
 - The job has no worker target or targets that worker ID.
 
-The current worker functions are listed in [FUNCTIONS.md](FUNCTIONS.md). Function code is shipped with the agent package; a job contains only the function name, version and JSON payload.
+The worker ships allow-listed Python code for discovery, metrics and provider execution. Provider capabilities are advertised only when that worker has the corresponding local environment configuration:
+
+| Function | Required worker-side configuration |
+|---|---|
+| `compute.proxmox_deploy@1.0.0` | Proxmox HTTPS URL, API token ID/secret, node name and prepared template VMID |
+| `platform.kubernetes_deploy@1.0.0` | Kubernetes HTTPS API URL and namespace-scoped service-account token |
+| `gamgee.bootstrap@1.0.0` | GAMGEE HTTPS installer URL and HMAC signing secret |
+
+Function code is shipped with the agent package; a job contains only the function name, version and JSON payload. No code package or script is sent by the model/control plane.
 
 ## Queue semantics
 
@@ -62,6 +70,15 @@ Job state:
 A failed attempt is retried with exponential backoff capped at five minutes. An expired lease is returned to the queue if attempts remain. Job completion/failure is accepted only from the worker with the matching lease token before lease expiry.
 
 **Delivery is at-least-once.** A worker can perform a side effect and crash before acknowledging it. Mutating functions must use an operation ID/idempotency key, verify current state before mutation, and provide compensation/rollback.
+
+## Provider deployment jobs
+
+Approved cloud deployments are also native distributed functions:
+- `compute.proxmox_deploy@1.0.0`: one VM per job, targeted to a configured Proxmox worker. Stable VM names allow retries to reconcile an existing VM.
+- `platform.kubernetes_deploy@1.0.0`: server-side applies a generated Deployment and ClusterIP Service to an existing Kubernetes cluster.
+- `gamgee.bootstrap@1.0.0`: sends a signed bootstrap/expand request to a configured GAMGEE installer. The installer must return a terminal completed/succeeded result; an asynchronous accepted response is not reported as completed.
+
+The control plane creates a deployment record, obtains explicit approval, rechecks live placement/capabilities and enqueues these functions. The deployment remains executing until every linked job succeeds or one reaches the dead-letter state. Provider credentials are not held by the web/API process.
 
 ## Targeted fleet jobs
 
