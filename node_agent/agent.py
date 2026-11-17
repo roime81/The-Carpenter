@@ -135,16 +135,23 @@ def main() -> None:
     node = inventory()
     logger.info("Starting Carpenter worker %s at %s", node["node_id"], base_url)
     last_heartbeat = 0.0
+    registered = False
 
     while True:
         now = time.monotonic()
         if now - last_heartbeat >= heartbeat_seconds:
+            last_heartbeat = now
             try:
                 node = inventory()
                 send_heartbeat(base_url, token, node)
-                last_heartbeat = now
+                registered = True
             except Exception as exc:
+                registered = False
                 logger.warning("Heartbeat failed: %s", exc)
+
+        if not registered:
+            time.sleep(poll_seconds)
+            continue
 
         try:
             job = claim_job(base_url, token, node["node_id"])
@@ -153,7 +160,8 @@ def main() -> None:
             else:
                 time.sleep(poll_seconds)
         except Exception as exc:
-            logger.warning("Worker poll failed: %s", exc)
+            registered = False
+            logger.warning("Worker poll failed; re-registering before further claims: %s", exc)
             time.sleep(poll_seconds)
 
 
