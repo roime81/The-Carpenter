@@ -62,6 +62,32 @@ class DistributedQueueTests(unittest.TestCase):
         )
         self.assertEqual(first["job_id"], second["job_id"])
 
+    def test_targeted_job_is_only_claimed_by_target_node(self):
+        store.upsert_agent({
+            "node_id": "worker-node-0002",
+            "hostname": "worker-02",
+            "capabilities": {"discovery.host_inventory": "1.0.0"},
+        })
+        queued = store.enqueue_job(
+            "discovery.host_inventory", "1.0.0", {},
+            target_worker_id="worker-node-0002",
+        )
+        self.assertIsNone(store.claim_job("worker-node-0001", lease_seconds=30))
+        claimed = store.claim_job("worker-node-0002", lease_seconds=30)
+        self.assertEqual(claimed["job_id"], queued["job_id"])
+
+    def test_expired_lease_cannot_submit_completion(self):
+        queued = store.enqueue_job("discovery.host_inventory", "1.0.0", {})
+        claimed = store.claim_job("worker-node-0001", lease_seconds=30)
+        with store._connect() as connection:
+            connection.execute(
+                "UPDATE faas_jobs SET lease_until=? WHERE job_id=?",
+                ("2000-01-01T00:00:00+00:00", queued["job_id"]),
+            )
+        self.assertFalse(store.complete_job(
+            queued["job_id"], "worker-node-0001", claimed["lease_token"], {"late": True}
+        ))
+
     def test_failed_job_is_retried_then_dead_lettered(self):
         queued = store.enqueue_job(
             "discovery.host_inventory", "1.0.0", {}, max_attempts=2
