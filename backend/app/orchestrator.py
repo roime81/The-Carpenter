@@ -292,6 +292,9 @@ class CarpenterOrchestrator:
                 "disk_gb_per_vm": state.get("disk_gb_per_vm", 40),
                 "high_availability": bool(state.get("high_availability", False)),
                 "container_image": state.get("container_image"),
+                "container_port": state.get("container_port", 8080),
+                "name": state.get("name", "carpenter-app"),
+                "namespace": state.get("namespace", "default"),
             }
             changed = any(previous.get(key) != value for key, value in current.items())
             if not changed:
