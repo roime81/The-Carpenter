@@ -26,6 +26,7 @@ This roadmap tracks the five requested engineering programmes. The first impleme
 - [x] Storage mount and network-interface inventory.
 - [x] Explicit private-IP TCP probes on a port allow-list.
 - [ ] Hypervisor API inventory and VM/workload enumeration.
+- [ ] Kubernetes node readiness, topology zones, control-plane quorum and storage-failure-domain discovery.
 - [ ] Storage IOPS/latency and network throughput benchmarks.
 - [ ] GPU, NUMA, PCIe, power and failure-domain discovery.
 - [ ] Provider connectors and unique per-node identities.
