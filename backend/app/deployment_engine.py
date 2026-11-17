@@ -18,10 +18,19 @@ class DeploymentEngine:
         model = request["service_model"]
         needs_vms = destination == "gamgee" or model in ("iaas", "hybrid")
         ha = assess_high_availability(hosts) if request.get("high_availability") else None
+        placement_hosts = hosts
+        if destination == "own_cloud" and model in ("iaas", "hybrid"):
+            # The current IaaS execution adapter is Proxmox only. Do not allocate
+            # onto a generic KVM host that the configured Proxmox API cannot manage.
+            placement_hosts = [
+                host for host in hosts
+                if host.get("discovery", {}).get("hypervisor", {}).get("proxmox_host")
+                and settings.proxmox_node in (host.get("hostname"), host.get("node_id"))
+            ]
         placement = None
         if needs_vms:
             placement = plan_placement(
-                hosts,
+                placement_hosts,
                 vm_count=request["vm_count"],
                 vcpu_per_vm=request["vcpu_per_vm"],
                 memory_gb_per_vm=request["memory_gb_per_vm"],
