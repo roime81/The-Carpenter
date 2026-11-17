@@ -1,8 +1,10 @@
-# The Carpenter — Architecture
+# The Carpenter — AI Cloud Deployment Agent Architecture
 
 ## The system boundary
 
-**The Carpenter is the control plane. The user's servers are the data plane.**
+**The Carpenter is an AI Agent and the control plane. The user's servers and provider APIs are the data plane.**
+
+The product is an AI Cloud Deployment Agent and AI Infrastructure-as-Code Agent. Users express desired outcomes in natural language; the agent discovers, designs, compiles, validates, provisions and reconciles supported infrastructure. Users do not manually author YAML or Terraform for supported resource types.
 
 The Carpenter is not a hypervisor and does not require users to adopt GAMGEE. It coordinates infrastructure that the user owns or is authorised to manage.
 
@@ -20,14 +22,18 @@ Two destinations are supported by design:
                           |
                  Python Control API
                           |
-                  THE CARPENTER AGENT
-        Intent • Conversation • Planning • Policy
+                THE CARPENTER AI AGENT
+        Goal • Conversation • Reasoning • Planning
                           |
            +--------------+-------------------+
            |              |                   |
-      Discovery       Resource Engine    Deployment Engine
+      Discovery       Resource Engine    AI IaC Engine
            |              |                   |
            +--------------+-------------------+
+                          |
+                 Validation / Policy
+                          |
+                 Deployment Engine
                           |
                Distributed Python FaaS
                 Durable Queue / Registry
@@ -48,16 +54,18 @@ Two destinations are supported by design:
            Metrics • HA • Failover • LB Plans
 ```
 
-The web application, API, orchestration, node agent, worker handlers and FaaS functions are Python. The browser UI is server-rendered HTML and CSS; no Node.js or JavaScript application runtime is used.
+The web application, API, AI orchestration, IaC compiler, node agent, worker handlers and FaaS functions are Python. The browser UI is server-rendered HTML and CSS; no Node.js or JavaScript application runtime is used.
 
 ## Control plane responsibilities
 
 - Prompt and conversation state.
-- LLM intent extraction (constrained to typed fields).
+- Natural-language goal interpretation and bounded desired-state extraction.
+- Agent task orchestration and conversational clarification.
+- Deterministic IaC compilation, artifact hashes and validation.
 - Worker/function version registry and durable job queue.
 - Node inventory, heartbeat freshness and capability catalogue.
 - Resource assessment, placement and capacity forecasting.
-- Deployment plans, approvals, adapter selection and audit events.
+- Deployment plans, approval policy, adapter selection and audit events.
 - Telemetry evaluation, HA assessment, failover and load-balancer planning.
 
 ## Data plane responsibilities
@@ -65,8 +73,25 @@ The web application, API, orchestration, node agent, worker handlers and FaaS fu
 - User-owned physical servers, VMs and hypervisors.
 - Storage, network and workload runtimes.
 - Worker-side read-only discovery/metrics functions and approved provider mutations.
+- Execution of Carpenter-generated, allow-listed IaC resources using local provider credentials.
 - GAMGEE or independent cloud services chosen by the user.
 - Application and infrastructure telemetry.
+
+## AI Agent and IaC pipeline
+
+The Carpenter operates as a goal-driven infrastructure agent:
+
+1. Interpret a natural-language outcome into a bounded desired-state request.
+2. Discover enrolled hosts, hypervisors, storage/network facts and worker capabilities.
+3. Select the target cloud/provider and plan resource placement.
+4. Compile the validated request into a deterministic `carpenter.iac/v1` resource graph and provider YAML artifacts.
+5. Verify schema, resource allow-lists, artifact hashes, fingerprint, capacity and worker capabilities.
+6. Apply the generated resources through approved provider FaaS functions.
+7. Reconcile the deployment from worker job outcomes and report results.
+
+The model does not generate executable shell, arbitrary Python or unrestricted provider configuration. A deterministic Python compiler creates the IaC, and provider workers apply supported resource shapes. The user does not need to create the YAML manually.
+
+Current compiler support is intentionally bounded: Proxmox VM plans, Kubernetes Deployment/Service manifests and GAMGEE bootstrap plans. General Terraform/OpenTofu and Ansible generation are not yet implemented. See [AI-AGENT.md](AI-AGENT.md) and [IAC-ENGINE.md](IAC-ENGINE.md).
 
 ## Distributed function execution
 
@@ -96,10 +121,11 @@ This is an advisory, conservative scheduler. It does not yet model NUMA, IOPS, n
 
 ## Deployment engine
 
-Deployment is a plan → approve → execute lifecycle:
-- GAMGEE: signed HTTPS handoff to a GAMGEE installer service.
-- Own-cloud IaaS: Proxmox VE API clones from a pre-prepared cloud-init template, applies CPU/RAM settings and starts VMs.
-- Own-cloud PaaS: server-side apply of a generated Kubernetes Deployment and ClusterIP Service to an existing cluster.
+Deployment is an AI Agent and IaC pipeline followed by a plan → approve → distributed apply lifecycle:
+- The IaC compiler creates a deterministic resource graph and reviewable provider artifacts before any mutation.
+- GAMGEE: signed HTTPS handoff to a GAMGEE installer service using a generated bootstrap/expand plan.
+- Own-cloud IaaS: Proxmox VE worker applies a generated VM resource by cloning a pre-prepared cloud-init template, applying supported CPU/RAM settings and starting the VM.
+- Own-cloud PaaS: Kubernetes worker applies the compiler-generated Deployment and ClusterIP Service YAML to an existing cluster.
 - Hybrid: IaaS and PaaS components together.
 
 Only a configured adapter can execute. There is no undocumented shell installer. The Proxmox adapter is restricted to the configured Proxmox node and template. The Kubernetes adapter requires a pre-existing API server and narrowly scoped service account.
