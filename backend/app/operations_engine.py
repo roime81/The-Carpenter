@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.resource_engine import plan_placement
+
 
 def assess_high_availability(hosts: list[dict[str, Any]], minimum_nodes: int = 2) -> dict[str, Any]:
     online = [host for host in hosts if host.get("online", True)]
