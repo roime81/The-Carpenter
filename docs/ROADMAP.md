@@ -1,6 +1,24 @@
-# Engineering Roadmap — 2026
+# Engineering Roadmap — AI Cloud Deployment Agent
 
-This roadmap tracks the five requested engineering programmes. The first implementation increment is committed; several provider capabilities are functional adapters while other integrations remain explicit contracts.
+The Carpenter is being developed as an AI Cloud Deployment Agent and AI Infrastructure-as-Code Agent. The five engine programmes are the execution foundation behind that agent.
+
+## 0. AI Agent and internal IaC — first vertical slice implemented
+
+- [x] Natural-language extraction for deployment intent and workload sizing.
+- [x] Discovery automatically queued for newly enrolled online workers.
+- [x] Provider and capacity selection for the first supported cloud paths.
+- [x] Deterministic `carpenter.iac/v1` desired-state/resource-graph compiler.
+- [x] Proxmox, Kubernetes and GAMGEE IaC artifact generation.
+- [x] Kubernetes Deployment and Service YAML generation from natural language requirements.
+- [x] SHA-256 graph fingerprint and artifact hash validation.
+- [x] IaC artifacts stored with the deployment plan and exposed for review.
+- [x] Provider worker functions apply supported generated resource shapes.
+- [ ] Broader multi-step LLM task planning and task memory.
+- [ ] Conversational, authenticated approval/execution workflow.
+- [ ] General-purpose Terraform/OpenTofu generation and plan/apply.
+- [ ] Ansible/configuration-management generation with a constrained module catalogue.
+- [ ] Continuous drift detection, reconciliation and controlled remediation.
+- [ ] Automatic SSH/bootstrap of unenrolled bare-metal servers.
 
 ## 1. Distributed Native FaaS Engine — foundation implemented
 
@@ -30,6 +48,7 @@ This roadmap tracks the five requested engineering programmes. The first impleme
 - [ ] Storage IOPS/latency and network throughput benchmarks.
 - [ ] GPU, NUMA, PCIe, power and failure-domain discovery.
 - [ ] Provider connectors and unique per-node identities.
+- [ ] Remote first-time server bootstrap and secure node enrolment.
 
 ## 3. Intelligent Resource Engine — first planner implemented
 
@@ -42,18 +61,18 @@ This roadmap tracks the five requested engineering programmes. The first impleme
 - [ ] Cost and power-aware placement.
 - [ ] Predictive models trained from retained telemetry and workload seasonality.
 
-## 4. Dual Cloud Deployment Engine — adapter foundation implemented
+## 4. Dual Cloud Deployment Engine — distributed provider apply implemented
 
-- [x] Plan → approve → execute lifecycle.
 - [x] Plan → approval → distributed FaaS dispatch lifecycle.
-- [x] GAMGEE signed HTTPS installer function contract.
+- [x] Deterministic internal IaC generated and saved with every deployment plan.
+- [x] GAMGEE signed HTTPS installer function contract and generated bootstrap plan.
 - [x] Proxmox worker FaaS function for template clone, CPU/RAM configure and VM start.
-- [x] Kubernetes worker FaaS function for server-side apply Deployment + ClusterIP Service.
+- [x] Kubernetes worker FaaS function applies generated Deployment/Service manifests.
 - [x] Deployment state reconciled from linked worker jobs.
 - [ ] GAMGEE installer service and versioned bootstrap/upgrade contract.
 - [ ] More hypervisor/cloud adapters (libvirt, OpenStack, public clouds, etc.).
 - [ ] Bare-metal-to-Kubernetes bootstrap for independent PaaS.
-- [ ] VM image lifecycle, cloud-init customization, networking and storage profiles.
+- [ ] VM disk resizing, image lifecycle, cloud-init customisation, networking and storage profiles.
 - [ ] Rollback/compensation for partial multi-resource deployments.
 
 ## 5. Autonomous Operations Engine — policy and planning implemented
