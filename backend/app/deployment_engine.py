@@ -106,10 +106,12 @@ class DeploymentEngine:
             for index in range(request["vm_count"]):
                 vmid = next_vmid + index
                 name = f"{request['name']}-{index + 1:03d}"
-                created.append(adapter.clone_vm(
+                cloned = adapter.clone_vm(
                     settings.proxmox_node, settings.proxmox_template_vmid, vmid, name,
                     request["vcpu_per_vm"], request["memory_gb_per_vm"] * 1024,
-                ))
+                )
+                start_task = adapter.start_vm(settings.proxmox_node, vmid)
+                created.append({**cloned, "start_task": start_task})
             results["components"]["iaas"] = {"created_vms": created}
 
         if model in ("paas", "hybrid"):
