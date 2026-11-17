@@ -58,7 +58,7 @@ class DeploymentEngine:
                 requirements.append(adapter_checks["kubernetes_configured"] and bool(request.get("container_image")))
             adapter_ready = all(requirements)
 
-        capacity_ready = placement is None or bool(placement["feasible"])
+        capacity_ready = bool(hosts) and (placement is None or bool(placement["feasible"]))
         ha_ready = ha is None or bool(ha["ha_ready"])
         return {
             "destination": destination,
