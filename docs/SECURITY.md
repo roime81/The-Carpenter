@@ -13,15 +13,28 @@ Deployment mutations are behind plan → approval → distributed FaaS dispatch.
 
 The worker reports only its function capability to the control plane; provider secrets are not included in heartbeats or FaaS payloads.
 
-## Development credentials
+## Browser authentication and RBAC
 
-The sample deployment uses:
-- `CARPENTER_ADMIN_TOKEN` for administrative APIs.
-- `CARPENTER_AGENT_ENROLLMENT_TOKEN` for node heartbeat and worker calls.
+The web console uses token-based role authentication in this release:
+- `CARPENTER_ADMIN_TOKEN`: full browser access, plan approval and deployment execution; also authorises the current administrative API.
+- `CARPENTER_OPERATOR_TOKEN`: may use the prompt to discover infrastructure and create/revise deployment plans, but cannot approve or execute.
+- `CARPENTER_VIEWER_TOKEN`: read-only access to the browser conversation.
+- `CARPENTER_AGENT_ENROLLMENT_TOKEN`: separate shared credential for Node Agent heartbeats and worker endpoints.
+- `CARPENTER_SESSION_SECRET`: HMAC signing key for browser sessions; it falls back to the admin token only when omitted.
 
-Keep them distinct. These are still shared development secrets, not a production node identity system. Anyone holding the worker token can impersonate an enrolled worker. Use TLS at all times and never expose the development service directly to the public internet.
+Operator and viewer credentials are optional. Configure distinct high-entropy values and never reuse a worker token as a browser token. The tokens are shared role credentials; they do not establish individual employee identities or group membership.
 
-The prompt UI currently does not provide production authentication/SSO or multi-tenant authorization. The current session cookie is not a complete identity or CSRF defense.
+On successful login, the control plane issues a 12-hour HMAC-SHA256 signed session containing a role, subject label, expiry and random CSRF value. The browser cookie is HttpOnly and SameSite=Strict. The login also rotates the separate conversation identifier. Prompt and logout POST requests validate the session CSRF value. Set `CARPENTER_COOKIE_SECURE=true` when TLS terminates in front of the application.
+
+Only the admin role may invoke chat commands `approve`, `deploy` or `approve and deploy`. Operators can create plans but receive a role denial for mutating actions. Viewers cannot submit prompts. The API approval endpoint records the authenticated API principal as `api-admin`; it does not trust the caller-supplied `approved_by` field as an identity claim.
+
+Browser sessions are stateless in this release. Logout clears the browser cookies, but a copied cookie remains valid until its expiry unless the session signing key is rotated. Individual session revocation and per-person audit attribution require a central identity/session service.
+
+This is an initial token-based RBAC boundary, not enterprise SSO. OIDC/SAML login, directory/group mapping, individual accounts, tenant/project isolation and centrally revocable sessions remain future work.
+
+## Development and worker credentials
+
+Keep admin, operator, viewer, session-signing and node-enrollment secrets distinct. The node enrollment token remains a shared development secret, not a production node identity system. Anyone holding it can impersonate an enrolled worker. Use TLS at all times and never expose the development service directly to the public internet.
 
 ## Mandatory production controls
 
