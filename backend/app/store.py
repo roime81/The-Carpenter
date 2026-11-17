@@ -26,7 +26,6 @@ def _connect() -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(path, timeout=15)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA busy_timeout = 15000")
     try:
         yield connection
@@ -40,6 +39,7 @@ def _connect() -> Iterator[sqlite3.Connection]:
 
 def initialise_store() -> None:
     with _connect() as connection:
+        connection.execute("PRAGMA journal_mode = WAL")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -181,6 +181,17 @@ def set_state(session_id: str, state: dict[str, Any]) -> None:
 def upsert_agent(inventory: dict[str, Any]) -> None:
     now = iso_now()
     with _connect() as connection:
+        existing = connection.execute(
+            "SELECT inventory_json FROM agents WHERE node_id = ?",
+            (inventory["node_id"],),
+        ).fetchone()
+        if existing:
+            previous = json.loads(existing["inventory_json"])
+            # Keep detailed discovery results from worker jobs; a regular
+            # heartbeat must not erase information collected between heartbeats.
+            previous_discovery = previous.get("discovery", {})
+            current_discovery = inventory.get("discovery", {})
+            inventory["discovery"] = {**previous_discovery, **current_discovery}
         connection.execute(
             """
             INSERT INTO agents(node_id, hostname, inventory_json, first_seen, last_seen)
@@ -191,6 +202,34 @@ def upsert_agent(inventory: dict[str, Any]) -> None:
                 last_seen = excluded.last_seen
             """,
             (inventory["node_id"], inventory["hostname"], json.dumps(inventory), now, now),
+        )
+
+
+def merge_agent_discovery(node_id: str, function_name: str, result: dict[str, Any]) -> None:
+    """Persist detailed node inspection results without changing heartbeat freshness."""
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT inventory_json FROM agents WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        if not row:
+            return
+        inventory = json.loads(row["inventory_json"])
+        discovery = inventory.setdefault("discovery", {})
+        if function_name == "discovery.hypervisor_probe":
+            discovery["hypervisor"] = result
+        elif function_name == "discovery.storage_network":
+            discovery["storage_network"] = result
+        elif function_name == "discovery.host_inventory":
+            for key in (
+                "hostname", "operating_system", "architecture", "cpu_cores",
+                "memory_total_bytes", "memory_available_bytes",
+                "disk_total_bytes", "disk_free_bytes",
+            ):
+                if key in result:
+                    inventory[key] = result[key]
+        connection.execute(
+            "UPDATE agents SET inventory_json = ? WHERE node_id = ?",
+            (json.dumps(inventory), node_id),
         )
 
 
