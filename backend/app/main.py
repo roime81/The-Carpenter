@@ -366,6 +366,8 @@ def execute_deployment(
         raise HTTPException(status_code=409, detail="Infrastructure readiness changed after approval; create a new plan.")
     if current_plan.get("placement") != record["plan"].get("placement"):
         raise HTTPException(status_code=409, detail="Placement changed after approval; create and approve a fresh plan.")
+    if current_plan.get("execution_workers") != record["plan"].get("execution_workers"):
+        raise HTTPException(status_code=409, detail="Execution worker capabilities changed after approval; create and approve a fresh plan.")
     set_deployment_status(deployment_id, "executing")
     store.record_event("deployment.execution.started", deployment_id, {
         "destination": record["destination"],
