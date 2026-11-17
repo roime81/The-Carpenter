@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 from app import store
@@ -142,22 +141,22 @@ class DeploymentEngine:
             })
         else:
             if model in ("iaas", "hybrid"):
-                grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
                 for index, placement in enumerate((plan.get("placement") or {}).get("placements", []), start=1):
-                    grouped[placement["host_id"]].append({
-                        "name": f"{request['name']}-{index:03d}",
+                    worker_id = placement["host_id"]
+                    vm_name = f"{request['name']}-{index:03d}"
+                    vm_definition = {
+                        "name": vm_name,
                         "vcpu": placement["vcpu"],
                         "memory_gb": placement["memory_gb"],
                         "disk_gb": placement["disk_gb"],
-                    })
-                for worker_id, vm_definitions in grouped.items():
+                    }
                     queued_jobs.append({
-                        "component": f"proxmox:{worker_id}",
+                        "component": f"proxmox:{worker_id}:{vm_name}",
                         **store.enqueue_job(
                             "compute.proxmox_deploy", "1.0.0",
-                            {"deployment_id": deployment_id, "vms": vm_definitions},
+                            {"deployment_id": deployment_id, "vms": [vm_definition]},
                             max_attempts=3, priority=10,
-                            idempotency_key=f"{deployment_id}:proxmox:{worker_id}",
+                            idempotency_key=f"{deployment_id}:proxmox:{worker_id}:{vm_name}",
                             target_worker_id=worker_id,
                         ),
                     })
