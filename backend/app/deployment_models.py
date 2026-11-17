@@ -12,8 +12,8 @@ class DeploymentRequest(BaseModel):
     memory_gb_per_vm: int = Field(default=4, ge=1, le=4096)
     disk_gb_per_vm: int = Field(default=40, ge=1, le=100000)
     high_availability: bool = False
-    name: str = Field(default="carpenter-app", min_length=1, max_length=63)
-    namespace: str = Field(default="default", min_length=1, max_length=63)
+    name: str = Field(default="carpenter-app", min_length=1, max_length=63, pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    namespace: str = Field(default="default", min_length=1, max_length=63, pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     container_image: str | None = Field(default=None, max_length=512)
     container_port: int = Field(default=8080, ge=1, le=65535)
 
