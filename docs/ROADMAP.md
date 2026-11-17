@@ -1,48 +1,68 @@
-# Roadmap
+# Engineering Roadmap — 2026
 
-## Milestone 0 — Prompt-first foundation (current)
-- Minimal server-rendered web prompt in Python.
-- SQLite-backed conversation history.
-- Node heartbeat and basic host inventory.
-- Local Python FaaS runtime with bounded wait and structured invocation results.
-- Preliminary capacity assessment and non-mutating plan generation.
-- Optional Ollama and OpenAI-compatible intent extraction.
-- Docker Compose deployment.
+This roadmap tracks the five requested engineering programmes. The first implementation increment is committed; several provider capabilities are functional adapters while other integrations remain explicit contracts.
 
-## Milestone 1 — Discovery and assessment
-- Unique node identity, secure enrolment and revocation.
-- CPU, memory, disk, network, GPU, hypervisor, storage and failure-domain capability discovery.
-- Freshness tracking and health state.
-- Capacity model with reservations and configurable headroom.
-- Assessment report and plan persistence.
+## 1. Distributed Native FaaS Engine — foundation implemented
 
-## Milestone 2 — Cloud adapters
-- GAMGEE bootstrap adapter and one-time environment registration.
-- Independent-cloud adapters for selected hypervisors and cloud providers.
-- Explicit IaaS/PaaS/hybrid capability matrix.
-- VM image catalogue, network and storage profiles.
-- Approval service and auditable plan execution.
+- [x] Persistent SQLite job queue and function registry.
+- [x] Versioned function name + version matching.
+- [x] Outbound worker polling and targeted worker assignment.
+- [x] Lease tokens, expiry recovery, retry/backoff and dead-letter state.
+- [x] Job idempotency keys and event audit.
+- [x] Built-in node discovery and metrics functions.
+- [ ] Shared PostgreSQL queue and multi-control-plane coordination.
+- [ ] Isolated worker processes/containers and cancellation.
+- [ ] Signed function packages, signature verification and automated rollback.
+- [ ] Tenant quotas, rate limits and worker resource limits.
 
-## Milestone 3 — Distributed native FaaS
-- Durable job queue and persistent invocation records.
-- Worker registration, leases, retries and dead-letter queues.
-- Function versioning, signatures and rollback.
-- Placement by locality, capability and failure domain.
-- Distributed execution across large server fleets.
+## 2. Infrastructure Discovery Engine — first capability set implemented
 
-## Milestone 4 — Operations and resilience
-- Metrics ingestion and service-level objectives.
-- AI-assisted recommendations with deterministic guardrails.
-- HA-aware scaling, load-balancer updates, draining and rollback.
-- Budget and quota constraints.
-- Backup, restore, disaster recovery and maintenance workflows.
+- [x] Fresh-heartbeat online/offline state.
+- [x] CPU, RAM, disk, OS, architecture and IP inventory.
+- [x] KVM/libvirt/Proxmox/container/Kubernetes presence probes.
+- [x] Storage mount and network-interface inventory.
+- [x] Explicit private-IP TCP probes on a port allow-list.
+- [ ] Hypervisor API inventory and VM/workload enumeration.
+- [ ] Storage IOPS/latency and network throughput benchmarks.
+- [ ] GPU, NUMA, PCIe, power and failure-domain discovery.
+- [ ] Provider connectors and unique per-node identities.
 
-## Milestone 5 — Production readiness
-- Multi-tenant RBAC, SSO and audit exports.
-- High-availability control plane and database.
-- Secrets manager integration and mTLS.
-- Security testing, upgrade strategy, observability and operational runbooks.
-- Conformance tests for every infrastructure adapter.
+## 3. Intelligent Resource Engine — first planner implemented
 
-## Explicit non-goal
-The Carpenter must not become a configuration-heavy infrastructure portal. The prompt remains the primary user interface; detailed inventory and execution data are surfaced conversationally or as generated reports only when useful.
+- [x] Conservative per-host placement using CPU, RAM and free disk.
+- [x] Configurable reserve model (initial defaults: 15% CPU, 20% memory, 15% disk).
+- [x] HA-aware spread across declared failure domains.
+- [x] Basic linear capacity forecast from supplied time-series samples.
+- [ ] Live reservation accounting and scheduler reconciliation.
+- [ ] NUMA/GPU/IOPS/network-aware bin packing.
+- [ ] Cost and power-aware placement.
+- [ ] Predictive models trained from retained telemetry and workload seasonality.
+
+## 4. Dual Cloud Deployment Engine — adapter foundation implemented
+
+- [x] Plan → approve → execute lifecycle.
+- [x] GAMGEE signed HTTPS installer adapter contract.
+- [x] Proxmox VE template clone, CPU/RAM configure and VM start adapter.
+- [x] Kubernetes server-side apply Deployment + ClusterIP Service adapter.
+- [ ] GAMGEE installer service and versioned bootstrap/upgrade contract.
+- [ ] More hypervisor/cloud adapters (libvirt, OpenStack, public clouds, etc.).
+- [ ] Bare-metal-to-Kubernetes bootstrap for independent PaaS.
+- [ ] VM image lifecycle, cloud-init customization, networking and storage profiles.
+- [ ] Rollback/compensation for partial multi-resource deployments.
+
+## 5. Autonomous Operations Engine — policy and planning implemented
+
+- [x] Worker metrics snapshots.
+- [x] Scale-up/scale-in candidate recommendations with min/max bounds.
+- [x] Basic HA readiness checks using enrolled nodes and failure domains.
+- [x] Failover placement plan.
+- [x] HAProxy backend configuration plan with input validation.
+- [ ] Metrics time-series database, alert rules and SLOs.
+- [ ] HAProxy/Envoy/cloud load-balancer apply and health verification.
+- [ ] Approved autoscaling and node drain/replace workflows.
+- [ ] Fencing, backup/restore and disaster-recovery execution.
+- [ ] Closed-loop remediation with approvals, cooldowns and rollback.
+
+## Production readiness gate
+
+Do not expose the deployment APIs for production use until the system has SSO/RBAC, unique node identity, mTLS, secret-manager integration, signed worker artifacts, process-isolated FaaS, persistent shared database, security testing and tested recovery runbooks.
