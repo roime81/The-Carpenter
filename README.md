@@ -1,11 +1,14 @@
 # The Carpenter
+### AI Cloud Deployment Agent · AI Infrastructure-as-Code Agent
 ### One Agent That Rules Them All.
 
-**A minimalist, prompt-driven cloud launcher.** The user describes the outcome. The Carpenter assesses the user's servers, plans resource placement, coordinates cloud deployment and provides ongoing operations intelligence.
+**The Carpenter is an AI Agent that turns natural-language infrastructure goals into deployed cloud environments.** It discovers the user's infrastructure, understands the desired outcome, designs the target architecture, generates the required Infrastructure-as-Code (IaC), validates it, onboards the selected providers, provisions resources and verifies the result.
 
-> **The Carpenter is the control plane. The user's servers are the data plane.** GAMGEE is optional: the user can ask The Carpenter to onboard GAMGEE Cloud or build an independent cloud.
+Users describe *what they want*. They do not have to author YAML, Terraform, Ansible, cloud-init or provider API payloads. The Carpenter generates and manages those implementation artifacts internally, then applies them through its distributed Python FaaS workers.
 
-The interface stays deliberately small: one web prompt, one agent, and conversational clarification. The platform complexity is implemented behind the prompt using native Python functions.
+> **The Carpenter is the AI control plane. The user's servers and provider endpoints are the data plane.** GAMGEE is optional: the agent can onboard GAMGEE Cloud or construct an independent IaaS/PaaS/hybrid environment.
+
+The experience is intentionally prompt-first. The agent owns the infrastructure workflow—from discovery and IaC generation to provider execution and result reconciliation—while deterministic policy, validation and approval controls govern infrastructure mutations.
 
 ## Contents
 
@@ -25,12 +28,13 @@ The interface stays deliberately small: one web prompt, one agent, and conversat
 
 ## Principles and architecture
 
-1. **Python 100%.** API, orchestration, model gateway, workers, infrastructure adapters and FaaS functions are Python. The browser UI is server-rendered HTML/CSS; there is no Node.js or JavaScript application runtime.
-2. **Control plane / data plane separation.** The Carpenter controls; user-owned servers provide compute, storage and network.
-3. **Two cloud choices.** GAMGEE onboarding or independent IaaS/PaaS/hybrid. Neither option is forced.
-4. **Native Python FaaS.** Functions are registered, versioned and executed by trusted workers.
-5. **Prompt-first experience.** No configuration-heavy infrastructure console.
-6. **Safe execution.** The AI interprets and plans; typed functions and provider adapters execute. Infrastructure mutations follow plan → approval → execute.
+1. **AI Agent first.** A goal-driven agent interprets requirements, discovers infrastructure, builds a deployment plan and orchestrates the full lifecycle.
+2. **AI IaC, not manual IaC.** The agent compiles validated intent into deterministic resource graphs and provider manifests. Users do not write YAML/Terraform to provision supported resources.
+3. **Python 100%.** API, orchestration, IaC compiler, workers, adapters and FaaS functions are Python. The UI is server-rendered HTML/CSS.
+4. **Control plane / data plane separation.** The Carpenter coordinates; user-owned servers and provider APIs provide compute, storage and network.
+5. **Two cloud choices.** GAMGEE onboarding or independent IaaS/PaaS/hybrid. Neither option is forced.
+6. **Native distributed FaaS.** All provider operations are versioned Python functions executed by workers.
+7. **Safe autonomy.** The model proposes intent; deterministic compilers, validators, policy and adapters control what can execute.
 
 ```text
                  USER
@@ -66,13 +70,17 @@ The interface stays deliberately small: one web prompt, one agent, and conversat
 
 | Programme | Implemented in this increment | Still required for production |
 |---|---|---|
-| Distributed Native FaaS | Durable SQLite queue, versioned function matching, targeted worker polling, leases, retries/backoff, idempotency keys, dead-letter status | Shared PostgreSQL queue, isolated workers, signed function packages, multi-tenant quotas |
-| Infrastructure Discovery | Per-node CPU/RAM/disk/OS/network facts, KVM/libvirt/Proxmox detection, targeted read-only TCP probes | Hypervisor API inventory, IOPS/network benchmarks, GPU/NUMA and full failure-domain topology |
-| Intelligent Resource Engine | Per-host placement, CPU/RAM/disk headroom, HA spread, simple capacity forecast | Reservations, workload-aware bin packing, NUMA/GPU/IOPS and cost models |
-| Dual Cloud Deployment | Approved plans enqueue versioned GAMGEE, Proxmox and Kubernetes FaaS jobs on credentialed data-plane workers; deployment status reconciles from job results | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation, multi-resource compensation |
-| Autonomous Operations | Worker metrics, HA assessment, scale recommendations, failover placement and HAProxy config planning | Live SLO/alert pipeline, automatic adapter apply, health verification, fencing, drain, rollback and recovery |
+| AI Agent & workflow | Natural-language requirement extraction, session context, discovery orchestration, deployment planning and provider function dispatch | Broader multi-step agent planning, approval-aware conversational execution, task memory and recovery loops |
+| AI IaC Engine | Deterministic desired-state resource graph, Proxmox/GAMGEE plans, Kubernetes YAML manifests, SHA-256 fingerprint and worker-side validation | More providers, Terraform/OpenTofu generation, dependency graph, drift detection and change/destroy plans |
+| Distributed Native FaaS | Durable SQLite queue, versioned functions, targeted workers, leases, retries/backoff, idempotency and dead-letter state | Shared PostgreSQL queue, isolated workers, signed function packages and multi-tenant quotas |
+| Infrastructure Discovery | Per-node CPU/RAM/disk/OS/network facts, KVM/libvirt/Proxmox detection and targeted read-only probes | Hypervisor API inventory, IOPS/network benchmarks, GPU/NUMA and full failure-domain topology |
+| Intelligent Resource Engine | Per-host placement, CPU/RAM/disk headroom, HA spread and basic capacity forecast | Reservations, workload-aware bin packing, NUMA/GPU/IOPS and cost models |
+| Dual Cloud Deployment | Approved IaC plans dispatch GAMGEE, Proxmox and Kubernetes Python FaaS jobs; status reconciles from worker results | GAMGEE installer service, bare-metal Kubernetes bootstrap, storage/network/image automation and compensation |
+| Autonomous Operations | Worker metrics, HA assessment, scale recommendations, failover placement and HAProxy config planning | Live SLO/alert pipeline, autonomous policy-bounded remediation, fencing, drain, rollback and recovery |
 
-**Important distinction:** provider operations are dispatched as native Python FaaS jobs to workers that advertise the required configured capability. Proxmox/Kubernetes/GAMGEE credentials live on those workers, not in the Carpenter control plane. The GAMGEE path is an integration contract; it needs a compatible installer endpoint. The own-cloud PaaS path targets an existing Kubernetes cluster; it does not yet bootstrap Kubernetes on raw servers.
+**IaC principle:** the generated resource graph and YAML are Carpenter-owned artifacts. The user supplies requirements, not manifests. The current compiler supports Proxmox VM plans, Kubernetes Deployment/Service manifests and a GAMGEE bootstrap plan; it does not yet generate general-purpose Terraform/OpenTofu or Ansible projects.
+
+**Execution boundary:** provider operations run as native Python FaaS jobs on workers with the required capability. Proxmox/Kubernetes/GAMGEE credentials stay on those workers. GAMGEE needs a compatible installer endpoint; own-cloud PaaS currently targets an existing Kubernetes cluster.
 
 ---
 
@@ -101,7 +109,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 Put one generated value in `CARPENTER_ADMIN_TOKEN` and a different one in `CARPENTER_AGENT_ENROLLMENT_TOKEN` in `.env`. Do not use the example placeholders.
 
-For a local-only demo, leave cloud adapter settings empty. You can still run the prompt UI, inspect the health endpoint and exercise planning APIs.
+For a local-only demo, leave worker provider credentials empty. You can still run the prompt UI, inspect the health endpoint, generate IaC plans and inspect the generated resource graph. Actual provisioning requires enrolled execution workers and configured provider endpoints.
 
 ### 2. Start The Carpenter control plane
 
@@ -165,7 +173,7 @@ Run one agent per server. Use meaningful failure domains such as `rack-a`, `rack
 
 The agent sends heartbeats every 30 seconds and polls the FaaS queue every 2 seconds by default. Adjust with `CARPENTER_HEARTBEAT_SECONDS` and `CARPENTER_WORKER_POLL_SECONDS`. Nodes older than `CARPENTER_AGENT_STALE_SECONDS` (default 90 seconds) are excluded from live capacity.
 
-Current built-in functions include read-only discovery/metrics plus provider functions for Proxmox VM creation, Kubernetes Deployment/Service apply and signed GAMGEE bootstrap. Provider functions are advertised only when the relevant worker has its endpoint and credentials configured. Workers execute only shipped, versioned Python handlers; they never execute arbitrary shell or model-generated Python.
+The agent performs discovery, constructs the desired state, compiles a provider-specific IaC bundle and dispatches the generated resources to worker functions for apply. Current built-in functions include read-only discovery/metrics plus Proxmox VM creation, Kubernetes Deployment/Service apply and signed GAMGEE bootstrap. Provider functions are advertised only when the relevant worker has its endpoint and credentials configured. Workers execute only shipped, versioned Python handlers; they never execute arbitrary shell or model-generated Python.
 
 For service management and the exact worker protocol, see [docs/DISTRIBUTED-FAAS.md](docs/DISTRIBUTED-FAAS.md).
 
@@ -217,9 +225,20 @@ Full worker-side environment details and adapter contracts are in [docs/DEPLOYME
 
 ---
 
-## Use the deployment lifecycle
+## Use the AI deployment agent
 
-Create a plan first. Do not call execute directly without reviewing the plan.
+Describe the desired outcome in the prompt—for example:
+
+```text
+Build my own PaaS cloud for the inventory API.
+Deploy 3 replicas using ghcr.io/example/inventory:v1.
+Each replica needs 2 vCPU and 4 GB RAM.
+Expose it internally on port 8080.
+```
+
+The Carpenter interprets the request, discovers available provider workers, creates the desired-state resource graph, compiles the Kubernetes YAML internally, validates the bundle and prepares the deployment. You do not need to write or upload YAML.
+
+For supported infrastructure changes, the current release keeps a human approval boundary before FaaS provisioning. Once authorised, the agent dispatches the generated IaC to provider workers and reconciles job results.
 
 ### 1. Create a plan
 
@@ -239,9 +258,17 @@ curl -X POST http://localhost:8000/api/v1/deployments/plan \
   }'
 ```
 
-The response includes a `deployment_id`, capacity/HA/adapter readiness checks and a saved plan.
+The response includes a `deployment_id`, capacity/HA/worker readiness checks, the generated IaC resource graph and its immutable fingerprint.
 
-### 2. Approve the exact plan
+### 2. Inspect generated IaC and approve the exact plan
+
+Inspect the generated YAML/resource graph (admin access required):
+
+```bash
+curl http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/iac \
+  -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
+```
+
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/approve \
@@ -320,6 +347,7 @@ These APIs produce assessments and plans. They do not yet perform autonomous loa
 | POST | `/api/v1/resources/forecast` | Simple capacity forecast (admin) |
 | POST | `/api/v1/deployments/plan` | Create dual-cloud deployment plan |
 | GET | `/api/v1/deployments/{id}` | Read plan and reconcile linked FaaS job results |
+| GET | `/api/v1/deployments/{id}/iac` | Inspect generated IaC artifacts and fingerprint |
 | POST | `/api/v1/deployments/{id}/approve` | Approve saved plan |
 | POST | `/api/v1/deployments/{id}/execute` | Dispatch approved provider FaaS jobs |
 | POST | `/api/v1/operations/metrics/collect` | Queue node metrics |
@@ -365,6 +393,8 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 
 ## Technical documentation
 
+- [AI Cloud Deployment Agent](docs/AI-AGENT.md)
+- [AI Infrastructure-as-Code Engine](docs/IAC-ENGINE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Distributed FaaS](docs/DISTRIBUTED-FAAS.md)
 - [Infrastructure Discovery](docs/DISCOVERY.md)
@@ -381,11 +411,12 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 ```text
 .
 ├── backend/app/
-│   ├── adapters/              # Direct adapter clients retained for reference/tests
+│   ├── adapters/              # Provider adapter references
 │   ├── runtime/               # Local Python function runtime
-│   ├── main.py                # FastAPI control plane
-│   ├── store.py               # SQLite queue, worker and inventory store
-│   ├── deployment_engine.py   # Plan/approve/execute coordinator
+│   ├── main.py                # Python control-plane API
+│   ├── store.py               # Queue, worker, inventory and deployment store
+│   ├── iac_engine.py          # Deterministic desired-state to IaC compiler
+│   ├── deployment_engine.py   # AI plan and distributed apply coordinator
 │   ├── resource_engine.py     # Placement and forecasting
 │   ├── operations_engine.py   # HA, recovery and LB planning
 │   └── worker_catalogue.py    # Versioned worker functions
