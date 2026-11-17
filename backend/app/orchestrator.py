@@ -169,6 +169,14 @@ class CarpenterOrchestrator:
         service_model = self._service_model(prompt, slots)
         if service_model:
             state["service_model"] = service_model
+        for key in (
+            "vcpu_per_vm", "memory_gb_per_vm", "disk_gb_per_vm",
+            "container_port", "container_image", "name", "namespace",
+        ):
+            if key in slots:
+                state[key] = slots[key]
+        if "high_availability" in slots:
+            state["high_availability"] = slots["high_availability"]
         lowered = prompt.lower()
         if any(term in lowered for term in ("high availability", "highly available", " ha ")):
             state["high_availability"] = True
@@ -248,19 +256,14 @@ class CarpenterOrchestrator:
                 return f"The current deployment plan is `{deployment_id}`. Tell me the requirement you want to change; no resources have been changed."
 
         if state.get("destination") == "own_cloud" and state.get("service_model") in ("paas", "hybrid"):
-            if not state.get("container_image"):
-                candidate = prompt.strip().split()[-1] if prompt.strip() else ""
-                if candidate and len(candidate) <= 512 and not any(char.isspace() for char in candidate):
-                    if ":" in candidate or "/" in candidate or candidate.count(".") >= 1:
-                        state["container_image"] = candidate
-                if not state.get("container_image"):
-                    state["phase"] = "await_container_image"
-                    store.set_state(session_id, state)
-                    return "What container image should I deploy for the PaaS component? For example, `nginx:stable`."
+            if not state.get("container_image") and phase != "await_container_image":
+                state["phase"] = "await_container_image"
+                store.set_state(session_id, state)
+                return "What container image should I deploy for the PaaS component? For example, `nginx:stable`."
 
         if phase == "await_container_image" and state.get("container_image") is None:
             candidate = prompt.strip()
-            if not candidate or len(candidate) > 512 or any(char.isspace() for char in candidate):
+            if not candidate or len(candidate) > 512 or any(char.isspace() or ord(char) < 32 for char in candidate):
                 return "Please provide one container image reference without spaces, such as `nginx:stable`."
             state["container_image"] = candidate
 
