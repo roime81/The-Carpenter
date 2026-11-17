@@ -2,6 +2,36 @@
 
 All notable changes to The Carpenter are documented here.
 
+## 0.4.0 — 2026-11-17
+
+### Authenticated conversational deployment
+- Added browser sign-in at `/login` using separate admin, operator and viewer role credentials.
+- Added HMAC-SHA256 signed 12-hour browser sessions with role, subject, expiry and CSRF claims.
+- Added HttpOnly, SameSite=Strict authentication cookies and optional Secure cookies for HTTPS deployments.
+- Added session-bound CSRF validation for prompt and logout forms.
+- Rotated the conversation identifier at login and separated it from the authenticated session cookie.
+- Added role-based browser capabilities: admin can approve/execute; operator can create and revise plans; viewer is read-only.
+- Added fixed conversational actions: `approve`, `deploy`, `approve and deploy`, and `status`.
+- Bound conversational actions to the active conversation's latest saved deployment plan.
+- Added approval audit events with role principal, action source and IaC fingerprint.
+- Reused the same approval and execution helpers for the browser and admin API; the LLM cannot invoke a separate arbitrary execution pathway.
+- Refused approval if readiness checks fail or the stored IaC bundle is missing or invalid.
+- Revalidated IaC fingerprints, live capacity, placement and provider worker assignment immediately before dispatch.
+- Added atomic deployment state transition to prevent duplicate browser/API requests from dispatching the same approved deployment concurrently.
+- Added tests for role resolution, session expiry/tampering, CSRF checks, operator restrictions and conversational approve/deploy behavior.
+
+### Documentation and release
+- Expanded README with role setup, browser authentication, conversational deployment lifecycle and API alternatives.
+- Updated the security guide with session semantics and remaining enterprise identity boundaries.
+- Bumped API and health version to 0.4.0.
+
+### Current limitations
+- This release provides shared role tokens, not individual user accounts or enterprise OIDC/SAML SSO.
+- Sessions are stateless; copied cookies cannot be individually revoked before expiry without rotating the signing secret.
+- Corporate directory/group mapping, per-user audit attribution and multi-tenant/project policies are not implemented.
+- First-time Node Agent install and worker provider credentials remain an operator setup task.
+- General Terraform/OpenTofu/Ansible generation, remote SSH bootstrap, bare-metal Kubernetes bootstrap, Proxmox disk resize and cross-provider rollback remain future work.
+
 ## 0.3.0 — 2026-11-17
 
 ### Product definition: AI Cloud Deployment Agent
