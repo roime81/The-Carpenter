@@ -11,6 +11,10 @@ All notable changes to The Carpenter are documented here.
 - Added lease recovery, exponential retry/backoff, max-attempt handling and dead-letter status.
 - Added idempotency keys and structured operation events.
 - Added worker-side allow-listed discovery and metrics functions.
+- Added worker-side Proxmox, Kubernetes and GAMGEE deployment functions.
+- Provider credentials are kept on the selected data-plane workers and are not passed through the control plane.
+- Approved deployment execution dispatches versioned FaaS jobs and reconciles deployment status from worker results.
+- Added one-VM-per-job Proxmox dispatch and a separate worker heartbeat thread for long-running operations.
 
 ### Infrastructure Discovery
 - Added CPU, memory, disk, OS, architecture and IP inventory.
@@ -64,4 +68,5 @@ All notable changes to The Carpenter are documented here.
 - GAMGEE requires a compatible external installer endpoint.
 - Own-cloud IaaS currently targets Proxmox VE and a prepared cloud-init template.
 - Own-cloud PaaS currently targets an existing Kubernetes cluster.
+- GAMGEE installer worker requires a terminal synchronous `succeeded`/`completed` response; async status polling is not implemented.
 - Closed-loop autoscaling, failover, load-balancer reload, fencing and rollback are not yet enabled.
