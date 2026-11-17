@@ -223,6 +223,30 @@ class CarpenterOrchestrator:
                 store.set_state(session_id, state)
             return "Should I design **IaaS**, **PaaS**, or a **hybrid** cloud?"
 
+        if phase == "plan_review":
+            deployment_id = state.get("deployment_id")
+            if any(word in lowered for word in ("approve", "execute", "deploy now", "build now")):
+                return (
+                    f"The plan is saved as `{deployment_id}`. For safety, infrastructure changes "
+                    "require an authenticated approval and execution call. Review the plan at "
+                    f"`GET /api/v1/deployments/{deployment_id}`, then use the approve and execute "
+                    "endpoints documented in the README."
+                )
+            previous = state.get("last_plan", {}).get("requested", {})
+            current = {
+                "destination": state.get("destination"),
+                "service_model": state.get("service_model"),
+                "vm_count": state.get("vm_count"),
+                "vcpu_per_vm": state.get("vcpu_per_vm", 2),
+                "memory_gb_per_vm": state.get("memory_gb_per_vm", 4),
+                "disk_gb_per_vm": state.get("disk_gb_per_vm", 40),
+                "high_availability": bool(state.get("high_availability", False)),
+                "container_image": state.get("container_image"),
+            }
+            changed = any(previous.get(key) != value for key, value in current.items())
+            if not changed:
+                return f"The current deployment plan is `{deployment_id}`. Tell me the requirement you want to change; no resources have been changed."
+
         if state.get("destination") == "own_cloud" and state.get("service_model") in ("paas", "hybrid"):
             if not state.get("container_image"):
                 candidate = prompt.strip().split()[-1] if prompt.strip() else ""
@@ -242,17 +266,6 @@ class CarpenterOrchestrator:
 
         if state.get("destination") and state.get("service_model") and state.get("vm_count"):
             return self._create_plan(session_id, state, agents)
-
-        if phase == "plan_review":
-            deployment_id = state.get("deployment_id")
-            if any(word in lowered for word in ("approve", "execute", "deploy now", "build now")):
-                return (
-                    f"The plan is saved as `{deployment_id}`. For safety, infrastructure changes "
-                    "require an authenticated approval and execution call. Review the plan at "
-                    "`GET /api/v1/deployments/{deployment_id}`, then use the approve and execute "
-                    "endpoints documented in the README."
-                )
-            return f"The current deployment plan is `{deployment_id}`. Tell me what requirement you want to change; no resources have been changed."
 
         store.set_state(session_id, state)
         return "Tell me the VM count, cloud destination (GAMGEE or own cloud), and cloud model (IaaS, PaaS or hybrid)."
