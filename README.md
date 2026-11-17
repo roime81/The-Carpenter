@@ -238,7 +238,7 @@ Expose it internally on port 8080.
 
 The Carpenter interprets the request, discovers available provider workers, creates the desired-state resource graph, compiles the Kubernetes YAML internally, validates the bundle and prepares the deployment. You do not need to write or upload YAML.
 
-For supported infrastructure changes, the current release keeps a human approval boundary before FaaS provisioning. Once authorised, the agent dispatches the generated IaC to provider workers and reconciles job results.
+For supported infrastructure changes, the current release keeps a human approval boundary before FaaS provisioning. Approval is currently performed through the authenticated admin API; conversational approval will follow SSO/RBAC integration. Once authorised, the agent dispatches the generated IaC to provider workers and reconciles job results.
 
 ### 1. Create a plan
 
@@ -268,7 +268,6 @@ Inspect the generated YAML/resource graph (admin access required):
 curl http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/iac \
   -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN"
 ```
-
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/approve \
