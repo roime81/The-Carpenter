@@ -338,8 +338,10 @@ curl http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/iac \
 curl -X POST http://localhost:8000/api/v1/deployments/DEPLOYMENT_ID/approve \
   -H "X-Carpenter-Token: $CARPENTER_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"approved_by":"infrastructure-owner"}'
+  -d '{"approved_by":"api-admin"}'
 ```
+
+The legacy `approved_by` request field is not trusted as an identity claim. The API audit event records the authenticated administrative API principal as `api-admin`.
 
 ### 3. Execute
 
