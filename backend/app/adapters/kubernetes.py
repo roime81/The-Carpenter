@@ -20,16 +20,16 @@ class KubernetesAdapter:
         self.timeout = timeout
         self.context = ssl.create_default_context()
 
-    def _post(self, path: str, body: dict[str, Any]) -> Any:
+    def _apply(self, path: str, body: dict[str, Any]) -> Any:
         request = urllib.request.Request(
-            self.api_url + path,
+            self.api_url + path + "?fieldManager=the-carpenter",
             data=json.dumps(body).encode(),
             headers={
                 "Authorization": "Bearer " + self.token,
-                "Content-Type": "application/json",
+                "Content-Type": "application/apply-patch+yaml",
                 "Accept": "application/json",
             },
-            method="POST",
+            method="PATCH",
         )
         try:
             with urllib.request.urlopen(request, context=self.context, timeout=self.timeout) as response:
@@ -75,7 +75,9 @@ class KubernetesAdapter:
                 },
             },
         }
-        deployment = self._post(f"/apis/apps/v1/namespaces/{encoded}/deployments", body)
+        deployment = self._apply(
+            f"/apis/apps/v1/namespaces/{encoded}/deployments/{name}", body
+        )
         service = {
             "apiVersion": "v1",
             "kind": "Service",
@@ -87,5 +89,7 @@ class KubernetesAdapter:
                 "type": "ClusterIP",
             },
         }
-        service_result = self._post(f"/api/v1/namespaces/{encoded}/services", service)
+        service_result = self._apply(
+            f"/api/v1/namespaces/{encoded}/services/{name}", service
+        )
         return {"deployment": deployment, "service": service_result}
