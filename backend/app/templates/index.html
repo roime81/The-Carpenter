@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c0d0f">
+  <title>{{ app_name }} — One Agent That Rules Them All</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="brand">
+      <div class="brand-mark" aria-hidden="true">C</div>
+      <div class="brand-name">{{ app_name }}</div>
+      <div class="brand-tagline">ONE AGENT THAT RULES THEM ALL</div>
+    </header>
+
+    <section class="conversation" aria-live="polite">
+      {% if not messages %}
+      <div class="welcome">
+        <div class="eyebrow">INFRASTRUCTURE, WITHOUT THE COMPLEXITY</div>
+        <h1>What shall we build?</h1>
+        <p>Describe the cloud you need. I will assess your infrastructure and guide the next step.</p>
+      </div>
+      {% endif %}
+
+      {% for item in messages %}
+      <article class="message {{ item.role }}">
+        <div class="message-role">{{ "YOU" if item.role == "user" else "THE CARPENTER" }}</div>
+        <div class="message-content">{{ item.content }}</div>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="composer">
+      <form method="post" action="/prompt">
+        <label class="visually-hidden" for="message">Tell The Carpenter what to build</label>
+        <textarea id="message" name="message" rows="1" maxlength="8000"
+          placeholder="Describe what you want to build..." required></textarea>
+        <button type="submit" aria-label="Send prompt">↑</button>
+      </form>
+      <div class="composer-foot">
+        <span>Python-native control plane</span>
+        <span>{{ agent_count }} enrolled node{% if agent_count != 1 %}s{% endif %}</span>
+      </div>
+    </section>
+
+    <footer>DISCOVER · ASSESS · PLAN · BUILD · OPERATE</footer>
+  </main>
+</body>
+</html>
