@@ -9,7 +9,7 @@ All notable changes to The Carpenter are documented here.
 - Added HMAC-SHA256 signed 12-hour browser sessions with role, subject, expiry and CSRF claims.
 - Added HttpOnly, SameSite=Strict authentication cookies and optional Secure cookies for HTTPS deployments.
 - Added session-bound CSRF validation for prompt and logout forms.
-- Rotated the conversation identifier at login and separated it from the authenticated session cookie.
+- Bound a fresh per-login conversation UUID inside the signed session so an unsigned browser cookie cannot select another conversation.
 - Added role-based browser capabilities: admin can approve/execute; operator can create and revise plans; viewer is read-only.
 - Added fixed conversational actions: `approve`, `deploy`, `approve and deploy`, and `status`.
 - Bound conversational actions to the active conversation's latest saved deployment plan.
