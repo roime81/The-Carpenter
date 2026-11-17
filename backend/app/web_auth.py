@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 import time
+import uuid
 from typing import Any
 
 from app.config import settings
@@ -65,6 +66,7 @@ def issue_session(token: str, now: int | None = None) -> tuple[dict[str, Any], s
         "exp": issued_at + SESSION_TTL_SECONDS,
         "csrf": secrets.token_urlsafe(32),
         "nonce": secrets.token_urlsafe(16),
+        "conversation_id": str(uuid.uuid4()),
     }
     encoded = _b64encode(json.dumps(claims, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     value = f"{encoded}.{_sign(encoded)}"
@@ -88,6 +90,12 @@ def read_session(cookie_value: str | None, now: int | None = None) -> dict[str, 
         if not isinstance(claims.get("subject"), str) or not claims["subject"]:
             return None
         if not isinstance(claims.get("csrf"), str) or len(claims["csrf"]) < 32:
+            return None
+        if not isinstance(claims.get("conversation_id"), str):
+            return None
+        try:
+            uuid.UUID(claims["conversation_id"])
+        except ValueError:
             return None
         issued_at = int(claims.get("iat", 0))
         expires_at = int(claims.get("exp", 0))
