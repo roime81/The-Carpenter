@@ -2,6 +2,37 @@
 
 All notable changes to The Carpenter are documented here.
 
+## 0.3.0 — 2026-11-17
+
+### Product definition: AI Cloud Deployment Agent
+- Repositioned The Carpenter as an AI Cloud Deployment Agent and AI Infrastructure-as-Code Agent.
+- Defined the goal-driven workflow: understand, discover, design, compile IaC, validate, authorise, provision, reconcile and report.
+- Updated the LLM contract so the model extracts bounded intent and does not emit executable YAML, shell or arbitrary provider instructions.
+
+### Internal AI IaC Engine
+- Added deterministic `carpenter.iac/v1` compiler for Proxmox, Kubernetes and GAMGEE resource plans.
+- Added generated Kubernetes Deployment and ClusterIP Service YAML with workload CPU/memory sizing.
+- Added Proxmox VM resource graph and GAMGEE bootstrap plan artifacts.
+- Added canonical resource-graph SHA-256 fingerprint and per-artifact SHA-256 hashes.
+- Added safe YAML parsing, resource allow-list checks and tamper detection before provider dispatch.
+- Added `GET /api/v1/deployments/{id}/iac` to inspect generated resources, YAML and validation metadata.
+- Updated Kubernetes worker to apply the exact generated manifests after validating supported resource shapes.
+- Updated Proxmox worker to require a generated VM resource and matching IaC fingerprint.
+
+### Agent experience and documentation
+- Prompt responses now report generated IaC resources, filenames and the bundle fingerprint.
+- Corrected prompt readiness checks to use live worker capability names.
+- Added AI Agent and IaC Engine technical guides.
+- Updated README, architecture, deployment, functions, security and roadmap documentation.
+- Explicitly documented that users do not author YAML for supported providers, while first-time Node Agent installation and worker credential onboarding remain prerequisites in this release.
+
+### Current limitations
+- General Terraform/OpenTofu and Ansible generation are not implemented.
+- Automatic remote SSH/bootstrap of unenrolled bare-metal hosts is not implemented.
+- Proxmox disk resize, custom network/storage profiles and per-VM cloud-init customisation are not yet applied.
+- Kubernetes PaaS requires an existing cluster; cluster topology/HA discovery remains future work.
+- Authenticated conversational approval requires the future SSO/RBAC integration; the current approval boundary is the admin API.
+
 ## 0.2.0 — 2026-11-17
 
 ### Distributed Native Python FaaS
@@ -60,7 +91,7 @@ All notable changes to The Carpenter are documented here.
 - Added unit tests for queue leases, retries, idempotency, targeted workers, discovery persistence,
   placement, HA, adapter safety and prompt intent parsing.
 - Expanded GitHub Actions to compile Python modules, import-check the API/worker, and run tests.
-- Latest CI run: 23 unit tests passed; Python compilation and control-plane/worker imports passed.
+- Latest 0.2.0 CI run: 30 unit tests passed; Python compilation and control-plane/worker imports passed.
 
 ### Known limitations
 - SQLite is for a single control-plane instance; shared multi-replica queue storage is not yet implemented.
