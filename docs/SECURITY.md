@@ -1,36 +1,51 @@
 # Security Model
 
-## MVP safety boundary
+## Current safety boundary
 
-The current application performs inventory intake and non-mutating capacity planning only. It does not create VMs, alter networks, install hypervisors, bootstrap GAMGEE, or run remote shell commands.
+The prompt and planning APIs do not grant the model arbitrary execution access. The current node agent runs only a fixed allow-list of Python handlers shipped in the repository. It does not accept shell commands, dynamically import model-generated code, or execute arbitrary scripts from the control plane.
 
-The node agent sends inventory over HTTPS when deployed behind a TLS endpoint. The sample uses a shared enrollment token for development; this is not sufficient for a multi-tenant production environment.
+Discovery and metrics are read-only. The TCP probe accepts explicit private, loopback or link-local IP literals and a restricted port allow-list; it does not perform CIDR sweeps or public address scanning.
 
-## Production requirements before privileged operations
+Deployment mutations are behind plan → approval → execute routes. The adapters require explicit configuration:
+- Proxmox: HTTPS API token and a prebuilt cloud-init template.
+- Kubernetes: HTTPS API and a service account scoped to the intended namespace/resources.
+- GAMGEE: HTTPS installer endpoint and a shared HMAC signing secret following the Carpenter request contract.
 
-1. TLS everywhere; reject cleartext production endpoints.
-2. Unique node identity and short-lived enrollment credentials per server.
-3. Mutual TLS or signed workload identity for node-to-control-plane communication.
-4. Rotate and revoke credentials; never place secrets in prompts or logs.
-5. Tenant isolation for sessions, node inventory, plans, approvals and audit events.
-6. Role-based access and explicit human approval for provisioning, deletion, network and storage mutation.
-7. Signed, versioned function packages and allow-listed function invocation.
-8. No arbitrary shell, Python eval, dynamic imports or model-generated executable code.
-9. Egress restrictions and network segmentation for node agents.
-10. Append-only audit trails, redaction, retention limits and security monitoring.
-11. Backups and tested recovery for the control-plane database.
-12. Rate limits, request-size limits, CSRF protection for browser forms and secure cookie settings.
+## Development credentials
 
-## Agent deployment cautions
+The sample deployment uses:
+- `CARPENTER_ADMIN_TOKEN` for administrative APIs.
+- `CARPENTER_AGENT_ENROLLMENT_TOKEN` for node heartbeat and worker calls.
 
-- Enroll only servers the operator owns or is authorised to administer.
-- Do not expose the node agent to untrusted networks.
-- Do not run it as root unless a specific, documented capability requires it.
-- The current agent reports host-level inventory only. It does not accept remote commands.
-- Keep the enrollment token out of source control and shell history where possible.
+Keep them distinct. These are still shared development secrets, not a production node identity system. Anyone holding the worker token can impersonate an enrolled worker. Use TLS at all times and never expose the development service directly to the public internet.
 
-## Approval classes
+The prompt UI currently does not provide production authentication/SSO or multi-tenant authorization. The current session cookie is not a complete identity or CSRF defense.
 
-- Read-only discovery: can run under an approved enrolment policy.
-- Reversible changes: require a plan and an authorised approval.
-- Privileged or destructive actions: require explicit confirmation, stronger authorisation and a tested rollback/compensation path.
+## Mandatory production controls
+
+1. TLS everywhere; reject cleartext worker and provider connections.
+2. Unique node identity and short-lived per-node enrollment credentials.
+3. mTLS or signed workload identity and node revocation.
+4. SSO, RBAC, tenant isolation and CSRF protection for browser actions.
+5. Secrets manager/KMS for all adapter credentials; rotate and audit access.
+6. Signed and versioned function artifacts with digest verification by workers.
+7. Process/container isolation, resource limits and cancellation for FaaS execution.
+8. Persistent, durable queue with controlled retries, leases, dead-letter queues and audit.
+9. Explicit approval, policy evaluation and compensation plans for privileged mutations.
+10. Append-only audit events, telemetry redaction and alerting.
+11. Egress allow-lists, network segmentation and firewall restrictions for workers.
+12. Database backups and tested recovery.
+
+## Execution safety
+
+- Never execute arbitrary commands supplied in prompts or model output.
+- Never treat ping or TCP reachability as authorization to manage a host.
+- Use a typed function catalogue and strict function-specific payload validation.
+- Bind jobs to worker identity and the exact supported function version.
+- Accept a job result only from the worker holding its active lease token.
+- Treat retries as at-least-once and design all mutation handlers for idempotency.
+- Require human approval for VM creation, network/storage changes, platform installation, scaling, failover and destructive work.
+
+## Storage and availability
+
+SQLite WAL is used for the current single-instance control plane. It is not a clustered multi-writer database. Before running multiple API replicas, migrate queue, sessions, inventory, approval and audit data to a shared transactional database and add a distributed scheduler/locking model.
