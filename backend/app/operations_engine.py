@@ -83,3 +83,44 @@ def render_haproxy_backends(backends: list[dict[str, Any]], frontend_port: int =
             raise ValueError("Invalid backend port")
         lines.append(f"    server app{index} {host}:{port} check")
     return "\n".join(lines) + "\n"
+
+
+
+def build_failover_plan(
+    hosts: list[dict[str, Any]],
+    failed_node_id: str,
+    vm_count: int,
+    vcpu_per_vm: int = 2,
+    memory_gb_per_vm: int = 4,
+    disk_gb_per_vm: int = 40,
+) -> dict[str, Any]:
+    """Recommend replacement placement after a node failure; never mutates workloads."""
+    survivors = [
+        host for host in hosts
+        if host.get("online", True) and host.get("node_id") != failed_node_id
+    ]
+    replacement = plan_placement(
+        survivors, vm_count, vcpu_per_vm, memory_gb_per_vm, disk_gb_per_vm,
+        high_availability=vm_count > 1,
+    )
+    return {
+        "failed_node_id": failed_node_id,
+        "surviving_node_count": len(survivors),
+        "recovery_feasible": replacement["feasible"],
+        "replacement_placement": replacement,
+        "execution_status": "recovery_plan_only",
+        "required_approval": True,
+        "reason": "Failover is planned only; workload fencing, data consistency and provider-specific recovery are mandatory before execution.",
+    }
+
+
+def load_balancer_plan(backends: list[dict[str, Any]], frontend_port: int = 80) -> dict[str, Any]:
+    config = render_haproxy_backends(backends, frontend_port)
+    return {
+        "provider": "haproxy",
+        "backend_count": len(backends),
+        "configuration": config,
+        "execution_status": "configuration_plan_only",
+        "required_approval": True,
+        "checks": ["IP literal validation", "port validation", "HTTP health-check configured"],
+    }
