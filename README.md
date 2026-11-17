@@ -236,11 +236,26 @@ $env:CARPENTER_AGENT_TOKEN = "your-enrolment-token"
 python node_agent/agent.py
 ```
 
-The agent sends a heartbeat every 30 seconds by default. Override with `CARPENTER_HEARTBEAT_SECONDS` (minimum 15). The initial inventory includes hostname, operating system, architecture, logical CPU count, RAM, disk totals/free space and IPv4 addresses.
+The agent sends a heartbeat every 30 seconds by default. Override with `CARPENTER_HEARTBEAT_SECONDS` (minimum 15). Nodes older than the configured freshness window are excluded from live capacity; the default is 90 seconds (`CARPENTER_AGENT_STALE_SECONDS`). The initial inventory includes hostname, operating system, architecture, logical CPU count, RAM, disk totals/free space and IPv4 addresses.
 
 The sample enrolment token is shared across nodes and intended only for the foundation milestone. Production requires unique node identities, per-node credentials, mutual TLS or equivalent workload identity, revocation and tenant isolation.
 
-## 9. API surface
+## 9. Tests and CI
+
+Run the unit tests locally:
+
+```bash
+# Linux / macOS
+PYTHONPATH=backend python -m unittest discover -s tests -v
+
+# Windows PowerShell
+$env:PYTHONPATH = "backend"
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs the Python unit test suite on pushes to `main` and pull requests.
+
+## 10. API surface
 
 | Method | Endpoint | Purpose |
 |---|---|---|
@@ -252,7 +267,7 @@ The sample enrolment token is shared across nodes and intended only for the foun
 
 FastAPI's interactive API documentation is available at `/docs`.
 
-## 10. Current limitations — read before production
+## 11. Current limitations — read before production
 
 This is the first engineering foundation, not yet a production cloud installer.
 
@@ -267,11 +282,11 @@ This is the first engineering foundation, not yet a production cloud installer.
 
 The security boundary and mandatory work before enabling mutations are described in [docs/SECURITY.md](docs/SECURITY.md).
 
-## 11. Engineering roadmap
+## 12. Engineering roadmap
 
 See [docs/ROADMAP.md](docs/ROADMAP.md). The sequence is discovery → assessment → adapter framework → approval and provisioning → GAMGEE/own-cloud deployment → distributed FaaS → operations/HA → production hardening.
 
-## 12. Repository structure
+## 13. Repository structure
 
 ```text
 .
