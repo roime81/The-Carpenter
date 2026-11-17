@@ -313,49 +313,68 @@ def _dns_label(value: str) -> bool:
 
 def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     deployment_id = str(payload.get("deployment_id", ""))
-    name = str(payload.get("name", ""))
-    namespace = str(payload.get("namespace", "default"))
-    image = str(payload.get("container_image", ""))
-    replicas = int(payload.get("replicas", 1))
-    port = int(payload.get("container_port", 8080))
+    manifests = payload.get("manifests")
+    fingerprint = str(payload.get("iac_fingerprint", ""))
     if not re.fullmatch(r"[a-f0-9-]{16,64}", deployment_id):
         raise ValueError("A valid Carpenter deployment ID is required")
+    if not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise ValueError("A valid compiled IaC fingerprint is required")
+    if not isinstance(manifests, list) or len(manifests) != 2:
+        raise ValueError("The IaC bundle must contain exactly one Deployment and one Service manifest")
+
+    by_kind: dict[str, dict[str, Any]] = {}
+    for manifest in manifests:
+        if not isinstance(manifest, dict) or manifest.get("kind") not in ("Deployment", "Service"):
+            raise ValueError("Only generated Kubernetes Deployment and Service manifests are accepted")
+        if manifest["kind"] in by_kind:
+            raise ValueError("Duplicate Kubernetes resource kind in generated IaC")
+        by_kind[manifest["kind"]] = manifest
+
+    if set(by_kind) != {"Deployment", "Service"}:
+        raise ValueError("Both a Deployment and Service manifest are required")
+
+    deployment = by_kind["Deployment"]
+    service = by_kind["Service"]
+    metadata = deployment.get("metadata", {})
+    service_metadata = service.get("metadata", {})
+    name = str(metadata.get("name", ""))
+    namespace = str(metadata.get("namespace", ""))
     if not _dns_label(name) or not _dns_label(namespace):
-        raise ValueError("Kubernetes name and namespace must be lowercase DNS labels")
+        raise ValueError("Generated Kubernetes names must be lowercase DNS labels")
+    if service_metadata.get("name") != name or service_metadata.get("namespace") != namespace:
+        raise ValueError("Generated Service must target the same workload and namespace")
+    if deployment.get("apiVersion") != "apps/v1" or service.get("apiVersion") != "v1":
+        raise ValueError("Generated Kubernetes API versions are not supported")
+
+    spec = deployment.get("spec", {})
+    replicas = spec.get("replicas")
+    selector = spec.get("selector", {}).get("matchLabels", {})
+    pod = spec.get("template", {}).get("spec", {})
+    containers = pod.get("containers", [])
+    if not isinstance(replicas, int) or isinstance(replicas, bool) or not 1 <= replicas <= 100:
+        raise ValueError("Generated replica count is out of range")
+    if not isinstance(containers, list) or len(containers) != 1:
+        raise ValueError("Generated workload must contain exactly one container")
+    container = containers[0]
+    image = str(container.get("image", ""))
     if not image or len(image) > 512 or any(char.isspace() or ord(char) < 32 for char in image):
-        raise ValueError("A valid container image reference is required")
-    if not 1 <= replicas <= 100 or not 1 <= port <= 65535:
-        raise ValueError("Kubernetes replica count or container port is out of range")
+        raise ValueError("Generated container image is invalid")
+    if not isinstance(selector, dict) or not selector:
+        raise ValueError("Generated Deployment selector is required")
+
+    deployment_ports = container.get("ports", [])
+    service_ports = service.get("spec", {}).get("ports", [])
+    if len(deployment_ports) != 1 or len(service_ports) != 1:
+        raise ValueError("Generated workload must expose exactly one application port")
+    port = deployment_ports[0].get("containerPort")
+    if not isinstance(port, int) or not 1 <= port <= 65535:
+        raise ValueError("Generated application port is invalid")
+    if service_ports[0].get("targetPort") != port:
+        raise ValueError("Generated Service targetPort does not match the container port")
+    if service.get("spec", {}).get("selector") != selector:
+        raise ValueError("Generated Service selector does not match the Deployment selector")
 
     encoded_namespace = urllib.parse.quote(namespace, safe="")
-    deployment = {
-        "apiVersion": "apps/v1",
-        "kind": "Deployment",
-        "metadata": {"name": name, "namespace": namespace,
-                     "labels": {"app.kubernetes.io/managed-by": "the-carpenter",
-                                "carpenter.openai.com/deployment-id": deployment_id}},
-        "spec": {
-            "replicas": replicas,
-            "selector": {"matchLabels": {"app": name}},
-            "template": {
-                "metadata": {"labels": {"app": name}},
-                "spec": {"containers": [{
-                    "name": name, "image": image,
-                    "ports": [{"containerPort": port}],
-                }]},
-            },
-        },
-    }
-    service = {
-        "apiVersion": "v1",
-        "kind": "Service",
-        "metadata": {"name": name, "namespace": namespace},
-        "spec": {
-            "selector": {"app": name},
-            "ports": [{"name": "http", "port": port, "targetPort": port, "protocol": "TCP"}],
-            "type": "ClusterIP",
-        },
-    }
     deployment_result = _kubernetes_apply(
         f"/apis/apps/v1/namespaces/{encoded_namespace}/deployments/{name}", deployment
     )
@@ -364,6 +383,11 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "deployment_id": deployment_id,
+        "iac_fingerprint": fingerprint,
+        "applied_resources": [
+            {"kind": "Deployment", "name": name, "namespace": namespace},
+            {"kind": "Service", "name": name, "namespace": namespace},
+        ],
         "deployment": deployment_result,
         "service": service_result,
         "execution_status": "succeeded",
