@@ -110,6 +110,17 @@ def initialise_store() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS deployment_job_links (
+                deployment_id TEXT NOT NULL,
+                job_id TEXT NOT NULL UNIQUE,
+                component TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(deployment_id, job_id),
+                FOREIGN KEY(deployment_id) REFERENCES deployments(deployment_id),
+                FOREIGN KEY(job_id) REFERENCES faas_jobs(job_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_deployment_job_links_deployment
+                ON deployment_job_links(deployment_id);
             CREATE TABLE IF NOT EXISTS operation_events (
                 event_id TEXT PRIMARY KEY,
                 event_type TEXT NOT NULL,
@@ -497,3 +508,25 @@ def list_events(limit: int = 100) -> list[dict[str, Any]]:
          "created_at": row["created_at"]}
         for row in rows
     ]
+
+
+
+def link_deployment_job(deployment_id: str, job_id: str, component: str) -> None:
+    with _connect() as connection:
+        connection.execute(
+            """INSERT OR IGNORE INTO deployment_job_links(
+                deployment_id, job_id, component, created_at
+            ) VALUES (?, ?, ?, ?)""",
+            (deployment_id, job_id, component[:160], iso_now()),
+        )
+
+
+def list_deployment_job_links(deployment_id: str) -> list[dict[str, Any]]:
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT deployment_id, job_id, component, created_at
+               FROM deployment_job_links WHERE deployment_id = ?
+               ORDER BY created_at, component""",
+            (deployment_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
