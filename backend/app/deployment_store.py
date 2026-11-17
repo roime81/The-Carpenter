@@ -8,7 +8,7 @@ from app import store
 
 def create(destination: str, service_model: str, plan: dict[str, Any]) -> dict[str, Any]:
     import uuid
-    deployment_id = str(uuid.uuid4())
+    deployment_id = str(plan.get("deployment_id") or uuid.uuid4())
     now = store.iso_now()
     with store._connect() as connection:
         connection.execute(
