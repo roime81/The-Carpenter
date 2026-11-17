@@ -65,6 +65,51 @@ class DeploymentFaasTests(unittest.TestCase):
         self.assertTrue(plan["capacity_ready"])
         self.assertEqual(plan["execution_workers"]["proxmox"], ["pve-worker-01"])
 
+    def test_paas_ha_is_not_claimed_without_kubernetes_cluster_topology(self):
+        kubernetes_workers = [
+            {
+                "node_id": "kube-worker-01",
+                "hostname": "kube-worker-01",
+                "online": True,
+                "failure_domain": "rack-a",
+                "cpu_cores": 8,
+                "memory_total_bytes": 64 * GIB,
+                "memory_available_bytes": 56 * GIB,
+                "disk_total_bytes": 500 * GIB,
+                "disk_free_bytes": 400 * GIB,
+                "capabilities": {"platform.kubernetes_deploy": "1.0.0"},
+            },
+            {
+                "node_id": "kube-worker-02",
+                "hostname": "kube-worker-02",
+                "online": True,
+                "failure_domain": "rack-b",
+                "cpu_cores": 8,
+                "memory_total_bytes": 64 * GIB,
+                "memory_available_bytes": 56 * GIB,
+                "disk_total_bytes": 500 * GIB,
+                "disk_free_bytes": 400 * GIB,
+                "capabilities": {"platform.kubernetes_deploy": "1.0.0"},
+            },
+        ]
+        request = {
+            "destination": "own_cloud",
+            "service_model": "paas",
+            "vm_count": 3,
+            "vcpu_per_vm": 2,
+            "memory_gb_per_vm": 4,
+            "disk_gb_per_vm": 20,
+            "high_availability": True,
+            "name": "frontend",
+            "namespace": "production",
+            "container_image": "nginx:stable",
+            "container_port": 8080,
+        }
+        plan = DeploymentEngine().build_plan(request, kubernetes_workers)
+        self.assertFalse(plan["ha_ready"])
+        self.assertFalse(plan["ready_to_execute_after_approval"])
+        self.assertIn("kubernetes_cluster_topology", plan["ha_assessments"])
+
     def test_approved_vm_deployment_is_enqueued_as_one_job_per_vm(self):
         host = proxmox_worker("pve-worker-01", "rack-a")
         store.upsert_agent(host)
