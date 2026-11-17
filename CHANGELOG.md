@@ -13,6 +13,7 @@ All notable changes to The Carpenter are documented here.
 - Added role-based browser capabilities: admin can approve/execute; operator can create and revise plans; viewer is read-only.
 - Added fixed conversational actions: `approve`, `deploy`, `approve and deploy`, and `status`.
 - Bound conversational actions to the active conversation's latest saved deployment plan.
+- Added explicit deployment-ID chat commands so operators can hand off a saved plan UUID to an admin in a separate browser session for approval, execution and status follow-up.
 - Added approval audit events with role principal, action source and IaC fingerprint.
 - Reused the same approval and execution helpers for the browser and admin API; the LLM cannot invoke a separate arbitrary execution pathway.
 - Refused approval if readiness checks fail or the stored IaC bundle is missing or invalid.
