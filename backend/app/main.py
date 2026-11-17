@@ -211,7 +211,7 @@ def _handle_chat_deployment_command(
     # browser session so subsequent deploy / status commands remain scoped.
     if explicit_id:
         state["deployment_id"] = explicit_id
-        state["phase"] = state.get("phase", "deployment_handoff")
+        state["phase"] = "deployment_handoff"
         store.set_state(session_id, state)
     actor = str(identity.get("subject", "web-user"))
     role = str(identity.get("role", "viewer"))
