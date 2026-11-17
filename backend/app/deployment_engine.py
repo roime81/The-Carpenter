@@ -17,7 +17,6 @@ class DeploymentEngine:
         destination = request["destination"]
         model = request["service_model"]
         needs_vms = destination == "gamgee" or model in ("iaas", "hybrid")
-        ha = assess_high_availability(hosts) if request.get("high_availability") else None
         placement_hosts = hosts
         if destination == "own_cloud" and model in ("iaas", "hybrid"):
             # The current IaaS execution adapter is Proxmox only. Do not allocate
@@ -27,6 +26,8 @@ class DeploymentEngine:
                 if host.get("discovery", {}).get("hypervisor", {}).get("proxmox_host")
                 and settings.proxmox_node in (host.get("hostname"), host.get("node_id"))
             ]
+        ha_hosts = placement_hosts if needs_vms else hosts
+        ha = assess_high_availability(ha_hosts) if request.get("high_availability") else None
         placement = None
         if needs_vms:
             placement = plan_placement(
