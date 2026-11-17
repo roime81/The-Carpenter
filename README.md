@@ -198,7 +198,7 @@ CARPENTER_PROXMOX_NODE=pve-node-01
 CARPENTER_PROXMOX_TEMPLATE_VMID=9000
 ```
 
-Prepare a cloud-init-capable VM template in Proxmox first. The node agent must report that configured Proxmox node as a Proxmox host. The adapter clones the template, applies vCPU/RAM sizing, waits for Proxmox tasks and starts the VM.
+Prepare a cloud-init-capable VM template in Proxmox first. The node agent must report that configured Proxmox node as a Proxmox host. The first adapter targets one configured Proxmox node per deployment (not a multi-node cluster scheduler). The adapter clones the template, applies vCPU/RAM sizing, waits for Proxmox tasks and starts the VM.
 
 ### Option B — independent PaaS with Kubernetes
 
