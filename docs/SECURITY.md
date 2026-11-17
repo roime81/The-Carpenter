@@ -2,7 +2,7 @@
 
 ## Current safety boundary
 
-The prompt and planning APIs do not grant the model arbitrary execution access. The current node agent runs only a fixed allow-list of Python handlers shipped in the repository. It does not accept shell commands, dynamically import model-generated code, or execute arbitrary scripts from the control plane.
+The Carpenter is an AI Cloud Deployment Agent and AI IaC Agent, but the model is not granted arbitrary infrastructure execution. The model extracts bounded intent; a deterministic Python compiler generates an allow-listed desired-state resource graph and YAML artifacts. The compiler validates resource kinds and fingerprints before provider FaaS dispatch. The node agent runs only fixed Python handlers shipped in the repository. It does not accept shell commands, dynamically import model-generated code, or execute arbitrary scripts from the control plane.
 
 Discovery and metrics are read-only. The TCP probe accepts explicit private, loopback or link-local IP literals and a restricted port allow-list; it does not perform CIDR sweeps or public address scanning.
 
@@ -43,6 +43,9 @@ The prompt UI currently does not provide production authentication/SSO or multi-
 - Never execute arbitrary commands supplied in prompts or model output.
 - Never treat ping or TCP reachability as authorization to manage a host.
 - Use a typed function catalogue and strict function-specific payload validation.
+- Treat model output as intent, not executable IaC.
+- Generate provider resources through the deterministic IaC compiler and verify bundle/artifact fingerprints before dispatch.
+- Workers must accept only supported resource kinds and validate generated manifest contents before provider API calls.
 - Bind jobs to worker identity and the exact supported function version.
 - Accept a job result only from the worker holding its active lease token.
 - Treat retries as at-least-once and design all mutation handlers for idempotency.
