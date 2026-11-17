@@ -174,22 +174,29 @@ class CarpenterOrchestrator:
             f"- HA check: {'passed' if plan['ha_ready'] else 'not passed'}",
             f"- Provider workers: {'available' if plan['adapter_ready'] else 'not available'}",
             f"- Generated IaC resources: {bundle['resource_count']}",
-            f"- IaC fingerprint: `{bundle['fingerprint'][:16]}`",
+            f"- IaC fingerprint: `{bundle['fingerprint']}`",
             f"- Deployment ID: `{record['deployment_id']}`",
             "",
-            "**IaC generated internally**",
+            "**Generated resource graph**",
         ]
+        lines.extend(
+            f"- {resource['resource_id']} · {resource['provider']} / {resource['kind']}"
+            for resource in bundle["resources"]
+        )
+        lines.extend(["", "**IaC artifacts generated internally**"])
         lines.extend(f"- `{name}`" for name in artifact_names)
-        lines.append("You do not need to write YAML, Terraform or provider configuration by hand.")
+        lines.append("You do not need to write YAML, Terraform, Ansible or provider API payloads by hand.")
         if blockers:
             lines.extend(["", "**Items to resolve before execution**"])
             lines.extend(f"- {item}" for item in blockers)
         else:
             lines.append("")
-            lines.append("The generated resource graph passed the initial readiness checks and is ready for authorised approval.")
+            lines.append("The generated resource graph passed validation and the initial readiness checks.")
+            lines.append("")
+            lines.append("Review the resources above. As an admin, say **approve** to approve this exact saved plan, then say **deploy** to execute it. You can also say **approve and deploy** to perform both explicit steps in one command.")
         lines.extend([
             "",
-            "The Carpenter will apply this generated IaC through its versioned Python provider functions. No infrastructure has changed yet; provisioning starts only after the deployment approval policy is satisfied.",
+            "No infrastructure has changed yet. Before dispatch, The Carpenter revalidates the stored IaC fingerprint, capacity, placement and provider-worker assignment. Execution is asynchronous; say **status** to follow the result.",
         ])
         return "\n".join(lines)
 
