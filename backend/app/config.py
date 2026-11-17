@@ -10,7 +10,7 @@ class Settings:
     environment: str = os.getenv("CARPENTER_ENV", "development")
     database_path: str = os.getenv("CARPENTER_DB_PATH", "./data/carpenter.db")
     agent_enrollment_token: str = os.getenv("CARPENTER_AGENT_ENROLLMENT_TOKEN", "")
-    admin_token: str = os.getenv("CARPENTER_ADMIN_TOKEN", os.getenv("CARPENTER_AGENT_ENROLLMENT_TOKEN", ""))
+    admin_token: str = os.getenv("CARPENTER_ADMIN_TOKEN", "")
     operator_token: str = os.getenv("CARPENTER_OPERATOR_TOKEN", "")
     viewer_token: str = os.getenv("CARPENTER_VIEWER_TOKEN", "")
     session_secret: str = os.getenv("CARPENTER_SESSION_SECRET", os.getenv("CARPENTER_ADMIN_TOKEN", ""))
