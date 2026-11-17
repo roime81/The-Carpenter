@@ -1,0 +1,26 @@
+services:
+  carpenter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: the-carpenter:local
+    restart: unless-stopped
+    environment:
+      CARPENTER_APP_NAME: The Carpenter
+      CARPENTER_ENV: ${CARPENTER_ENV:-development}
+      CARPENTER_DB_PATH: /data/carpenter.db
+      CARPENTER_AGENT_ENROLLMENT_TOKEN: ${CARPENTER_AGENT_ENROLLMENT_TOKEN:?Set CARPENTER_AGENT_ENROLLMENT_TOKEN in .env}
+      CARPENTER_COOKIE_SECURE: ${CARPENTER_COOKIE_SECURE:-false}
+    ports:
+      - "${CARPENTER_PORT:-8000}:8000"
+    volumes:
+      - carpenter-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  carpenter-data:
