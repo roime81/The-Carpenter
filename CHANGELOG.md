@@ -24,6 +24,8 @@ All notable changes to The Carpenter are documented here.
 - Corrected prompt readiness checks to use live worker capability names.
 - Added AI Agent and IaC Engine technical guides.
 - Updated README, architecture, deployment, functions, security and roadmap documentation.
+- Updated the prompt UI and API identity to AI Cloud Deployment Agent / AI IaC Agent.
+- Added deterministic IaC compiler and worker manifest validation coverage; 36 unit tests pass in CI.
 - Explicitly documented that users do not author YAML for supported providers, while first-time Node Agent installation and worker credential onboarding remain prerequisites in this release.
 
 ### Current limitations
