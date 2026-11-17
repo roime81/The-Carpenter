@@ -1,158 +1,261 @@
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any
 
 from app import store
-from app.config import settings
+from app.deployment_engine import DeploymentEngine
+from app.deployment_store import create as create_deployment_record
 from app.functions import register_builtin_functions
 from app.llm import ModelGateway
 from app.runtime.faas import FunctionRuntime
 
 
+DISCOVERY_FUNCTIONS = (
+    "discovery.host_inventory",
+    "discovery.hypervisor_probe",
+    "discovery.storage_network",
+)
+
+
 class CarpenterOrchestrator:
-    """Conversation coordinator. The model extracts intent; policy and functions decide."""
+    """Single-agent conversation coordinator backed by deterministic engines."""
 
     def __init__(self) -> None:
         self.runtime = FunctionRuntime()
         self.brain = ModelGateway()
         register_builtin_functions(self.runtime)
 
+    @staticmethod
+    def _number_from_prompt(prompt: str) -> int | None:
+        numbers = re.findall(r"\b\d+\b", prompt)
+        if not numbers:
+            return None
+        return min(max(int(numbers[0]), 1), 10000)
+
+    @staticmethod
+    def _destination(prompt: str, slots: dict[str, Any]) -> str | None:
+        value = slots.get("destination")
+        if value in ("gamgee", "own_cloud"):
+            return value
+        lowered = prompt.lower()
+        if "gamgee" in lowered:
+            return "gamgee"
+        if any(word in lowered for word in ("own cloud", "my cloud", "custom cloud", "independent cloud")):
+            return "own_cloud"
+        return None
+
+    @staticmethod
+    def _service_model(prompt: str, slots: dict[str, Any]) -> str | None:
+        value = slots.get("service_model")
+        if value in ("iaas", "paas", "hybrid"):
+            return value
+        lowered = prompt.lower()
+        if "hybrid" in lowered:
+            return "hybrid"
+        if "paas" in lowered:
+            return "paas"
+        if "iaas" in lowered:
+            return "iaas"
+        return None
+
+    @staticmethod
+    def _queue_new_node_discovery(state: dict[str, Any], agents: list[dict[str, Any]]) -> None:
+        discovered = set(state.get("discovery_nodes", []))
+        new_nodes = [agent for agent in agents if agent["node_id"] not in discovered]
+        for agent in new_nodes:
+            for function_name in DISCOVERY_FUNCTIONS:
+                store.enqueue_job(
+                    function_name,
+                    "1.0.0",
+                    {},
+                    max_attempts=3,
+                    idempotency_key=f"prompt-discovery-{agent['node_id']}-{function_name}-{uuid.uuid4()}",
+                    target_worker_id=agent["node_id"],
+                )
+            discovered.add(agent["node_id"])
+        state["discovery_nodes"] = sorted(discovered)
+
+    def _create_plan(self, session_id: str, state: dict[str, Any], agents: list[dict[str, Any]]) -> str:
+        request = {
+            "destination": state["destination"],
+            "service_model": state["service_model"],
+            "vm_count": state.get("vm_count", 1),
+            "vcpu_per_vm": state.get("vcpu_per_vm", 2),
+            "memory_gb_per_vm": state.get("memory_gb_per_vm", 4),
+            "disk_gb_per_vm": state.get("disk_gb_per_vm", 40),
+            "high_availability": bool(state.get("high_availability", False)),
+            "name": state.get("name", "carpenter-app"),
+            "namespace": state.get("namespace", "default"),
+            "container_image": state.get("container_image"),
+            "container_port": state.get("container_port", 8080),
+        }
+        plan = DeploymentEngine().build_plan(request, agents)
+        record = create_deployment_record(
+            request["destination"], request["service_model"], plan
+        )
+        state["deployment_id"] = record["deployment_id"]
+        state["last_plan"] = plan
+        state["phase"] = "plan_review"
+        store.set_state(session_id, state)
+        store.record_event("prompt.deployment.plan.created", record["deployment_id"], {
+            "session_id": session_id,
+            "destination": request["destination"],
+            "service_model": request["service_model"],
+        })
+
+        blockers: list[str] = []
+        if not plan["capacity_ready"]:
+            placement = plan.get("placement") or {}
+            blockers.extend(placement.get("reasons", []))
+            if not blockers:
+                blockers.append("No online, eligible data-plane capacity was found.")
+        if not plan["ha_ready"]:
+            blockers.append("The requested HA topology does not span enough independent failure domains.")
+        if not plan["adapter_ready"]:
+            checks = plan["adapter_checks"]
+            if request["destination"] == "gamgee" and not checks["gamgee_installer_configured"]:
+                blockers.append("The GAMGEE installer endpoint and signing secret are not configured.")
+            if request["destination"] == "own_cloud":
+                if request["service_model"] in ("iaas", "hybrid") and not checks["proxmox_configured"]:
+                    blockers.append("The Proxmox API, node, token and prepared template are not configured.")
+                if request["service_model"] in ("paas", "hybrid"):
+                    if not checks["kubernetes_configured"]:
+                        blockers.append("The Kubernetes API and scoped service-account token are not configured.")
+                    if not request.get("container_image"):
+                        blockers.append("A container image is required for the PaaS component.")
+
+        target = "GAMGEE Cloud" if request["destination"] == "gamgee" else "your own cloud"
+        lines = [
+            "**Deployment plan created**",
+            "",
+            f"- Destination: {target}",
+            f"- Cloud model: {request['service_model'].upper()}",
+            f"- Requested VMs/replicas: {request['vm_count']}",
+            f"- Online enrolled servers: {plan['host_count']}",
+            f"- Capacity check: {'passed' if plan['capacity_ready'] else 'not passed'}",
+            f"- HA check: {'passed' if plan['ha_ready'] else 'not passed'}",
+            f"- Adapter check: {'configured' if plan['adapter_ready'] else 'not configured'}",
+            f"- Plan ID: `{record['deployment_id']}`",
+            "",
+        ]
+        if blockers:
+            lines.append("**Items to resolve before execution**")
+            lines.extend(f"- {item}" for item in blockers)
+        else:
+            lines.append("The plan is ready for an authorised approval.")
+        lines.extend([
+            "",
+            "Nothing has been provisioned. The saved plan must be reviewed and approved through the authenticated deployment API before any infrastructure change.",
+        ])
+        return "\n".join(lines)
+
     def respond(self, session_id: str, prompt: str) -> str:
         state = store.get_state(session_id)
-        agents = store.list_agents()
+        agents = store.list_agents(online_only=True)
         phase = state.get("phase", "connect")
         slots = self.brain.extract_slots(prompt)
 
+        vm_count = slots.get("vm_count")
+        if vm_count is None and ("vm" in prompt.lower() or phase == "await_vm_count"):
+            vm_count = self._number_from_prompt(prompt)
+        if vm_count is not None:
+            state["vm_count"] = vm_count
+
+        destination = self._destination(prompt, slots)
+        if destination:
+            state["destination"] = destination
+        service_model = self._service_model(prompt, slots)
+        if service_model:
+            state["service_model"] = service_model
+        lowered = prompt.lower()
+        if any(term in lowered for term in ("high availability", "highly available", " ha ")):
+            state["high_availability"] = True
+
         if not agents:
-            # Preserve explicit requirements while the user is connecting the data plane.
-            numbers = re.findall(r"\b\d+\b", prompt)
-            if "vm_count" in slots:
-                state["vm_count"] = slots["vm_count"]
-            elif numbers and "vm" in prompt.lower():
-                state["vm_count"] = min(max(int(numbers[0]), 1), 10000)
-            if "destination" in slots:
-                state["destination"] = slots["destination"]
-            if "service_model" in slots:
-                state["service_model"] = slots["service_model"]
             state["phase"] = "connect"
             store.set_state(session_id, state)
             return (
-                "Let's start with your infrastructure. I need to verify the servers before "
-                "designing a cloud. Install the Python Carpenter Node Agent on each server and "
-                "point it to this Carpenter control-plane URL. Once a node reports in, I can "
-                "inspect its CPU, memory, storage and network inventory. A ping alone is not "
-                "enough to prove that a server is manageable.\n\n"
-                "For this first version, discovery is limited to explicitly enrolled nodes; "
-                "I will not scan arbitrary networks or execute commands across your estate."
+                "Let's connect your data plane first. Install the Python Carpenter Node Agent "
+                "on each server and point it to this Carpenter control-plane URL. The agent "
+                "reports host inventory and advertises the read-only Python functions it can run.\n\n"
+                "I have retained any VM count, destination or cloud-model requirements you already "
+                "provided. A ping alone is not proof that a host is manageable; only explicitly "
+                "enrolled nodes are assessed."
             )
 
-        capacity_result = self.runtime.invoke(
-            "assessment.capacity",
-            {"hosts": agents},
-            idempotency_key=None,
-        )["output"]
+        # Automatically queue detailed read-only discovery for any newly online node.
+        self._queue_new_node_discovery(state, agents)
 
         if phase in ("connect", "await_vm_count"):
-            vm_count = slots.get("vm_count") or state.get("vm_count")
-            if not vm_count:
-                numbers = re.findall(r"\b\d+\b", prompt)
-                if phase == "await_vm_count" and numbers:
-                    vm_count = min(max(int(numbers[0]), 1), 10000)
-            if vm_count:
-                state["vm_count"] = vm_count
-                if slots.get("destination"):
-                    state["destination"] = slots["destination"]
-                if slots.get("service_model"):
-                    state["service_model"] = slots["service_model"]
-                if state.get("destination"):
-                    state["phase"] = "await_service_model"
-                    store.set_state(session_id, state)
-                    target = "GAMGEE Cloud" if state["destination"] == "gamgee" else "your own cloud"
-                    return f"I have recorded {vm_count} VM(s). The target is **{target}**. Should I design **IaaS**, **PaaS**, or **hybrid**?"
+            if not state.get("vm_count"):
+                state["phase"] = "await_vm_count"
+                store.set_state(session_id, state)
+                capacity = self.runtime.invoke(
+                    "assessment.capacity", {"hosts": agents}
+                )["output"]
+                return (
+                    f"I can see {capacity['host_count']} online enrolled server(s). "
+                    f"Their preliminary capacity is {capacity['total_cpu_cores']} logical CPU cores "
+                    f"and {capacity['total_memory_gb']} GiB RAM. Detailed discovery has been queued "
+                    "for every online node.\n\n"
+                    "How many virtual machines (or PaaS replicas) would you like?"
+                )
+            if not state.get("destination"):
                 state["phase"] = "await_destination"
                 store.set_state(session_id, state)
                 return (
-                    f"I have recorded a request for {vm_count} VM(s). "
-                    "Would you like me to **onboard GAMGEE Cloud**, or build **your own cloud**?"
+                    f"I have recorded {state['vm_count']} VM(s)/replica(s). Would you like me to "
+                    "**onboard GAMGEE Cloud**, or build **your own cloud**?"
                 )
+            if not state.get("service_model"):
+                state["phase"] = "await_service_model"
+                store.set_state(session_id, state)
+                return "Should I design **IaaS**, **PaaS**, or a **hybrid** cloud?"
 
-            state["phase"] = "await_vm_count"
-            store.set_state(session_id, state)
-            return (
-                f"Discovery has received {capacity_result['host_count']} enrolled server(s). "
-                f"Preliminary inventory: {capacity_result['total_cpu_cores']} CPU cores, "
-                f"{capacity_result['total_memory_gb']} GiB total memory and "
-                f"{capacity_result['available_memory_gb']} GiB currently available. "
-                "This is an inventory estimate, not yet a placement guarantee.\n\n"
-                "How many virtual machines would you like to create? You can also tell me "
-                "the workload and I will help estimate the number."
-            )
+        if phase == "await_destination" and not state.get("destination"):
+            return "Please choose **GAMGEE Cloud** or **your own cloud**. Both paths are supported."
 
-        if phase == "await_destination":
-            lowered = prompt.lower()
-            destination = slots.get("destination")
-            if destination == "gamgee" or "gamgee" in lowered:
-                state["destination"] = "gamgee"
-            elif destination == "own_cloud" or any(word in lowered for word in ("own cloud", "my cloud", "custom", "independent")):
-                state["destination"] = "own_cloud"
-            else:
-                return "Please choose **GAMGEE Cloud** or **your own cloud**. Both remain available."
-            state["phase"] = "await_service_model"
-            store.set_state(session_id, state)
-            target = "GAMGEE Cloud" if state["destination"] == "gamgee" else "your own cloud"
-            return f"Understood. The target is **{target}**. Should I design **IaaS**, **PaaS**, or a **hybrid**?"
+        if phase in ("await_destination", "await_service_model") and not state.get("service_model"):
+            if state.get("destination") == "own_cloud":
+                state["phase"] = "await_service_model"
+                store.set_state(session_id, state)
+            return "Should I design **IaaS**, **PaaS**, or a **hybrid** cloud?"
 
-        if phase == "await_service_model":
-            lowered = prompt.lower()
-            model = slots.get("service_model")
-            if model not in ("iaas", "paas", "hybrid"):
-                if "hybrid" in lowered:
-                    model = "hybrid"
-                elif "paas" in lowered:
-                    model = "paas"
-                elif "iaas" in lowered:
-                    model = "iaas"
-            if model not in ("iaas", "paas", "hybrid"):
-                return "Choose **IaaS**, **PaaS**, or **hybrid**. I can explain the trade-offs before you decide."
+        if state.get("destination") == "own_cloud" and state.get("service_model") in ("paas", "hybrid"):
+            if not state.get("container_image"):
+                candidate = prompt.strip().split()[-1] if prompt.strip() else ""
+                if candidate and len(candidate) <= 512 and not any(char.isspace() for char in candidate):
+                    if ":" in candidate or "/" in candidate or candidate.count(".") >= 1:
+                        state["container_image"] = candidate
+                if not state.get("container_image"):
+                    state["phase"] = "await_container_image"
+                    store.set_state(session_id, state)
+                    return "What container image should I deploy for the PaaS component? For example, `nginx:stable`."
 
-            state["service_model"] = model
-            state["phase"] = "plan_review"
-            store.set_state(session_id, state)
-            plan = self.runtime.invoke(
-                "planning.deployment",
-                {
-                    "capacity": capacity_result,
-                    "destination": state["destination"],
-                    "service_model": model,
-                    "vm_count": state.get("vm_count", 1),
-                    "vcpu_per_vm": 2,
-                    "memory_gb_per_vm": 4,
-                },
-            )["output"]
-            state["last_plan"] = plan
-            store.set_state(session_id, state)
-            fit = "fits the preliminary CPU and memory estimate" if plan["capacity_fit"] else "exceeds the preliminary capacity estimate"
-            destination = "GAMGEE Cloud" if plan["destination"] == "gamgee" else "your own cloud"
-            return (
-                f"**Assessment plan prepared**\n\n"
-                f"- Destination: {destination}\n"
-                f"- Cloud model: {model.upper()}\n"
-                f"- VMs requested: {plan['vm_count']} × {plan['vcpu_per_vm']} vCPU / "
-                f"{plan['memory_gb_per_vm']} GiB RAM\n"
-                f"- Aggregate request: {plan['requested_vcpu']} vCPU / "
-                f"{plan['requested_memory_gb']} GiB RAM\n"
-                f"- Capacity: {fit}\n\n"
-                "This is a planning result only. The next engineering milestone is to connect "
-                "a verified hypervisor/cloud adapter and produce an approval-ready deployment "
-                "plan. No resources have been changed."
-            )
+        if phase == "await_container_image" and state.get("container_image") is None:
+            candidate = prompt.strip()
+            if not candidate or len(candidate) > 512 or any(char.isspace() for char in candidate):
+                return "Please provide one container image reference without spaces, such as `nginx:stable`."
+            state["container_image"] = candidate
 
-        return (
-            "I have the current assessment context. Tell me what you would like to adjust, "
-            "or start a new deployment conversation. Infrastructure changes remain disabled "
-            "until a compatible execution adapter and approval workflow are enabled."
-        )
+        if state.get("destination") and state.get("service_model") and state.get("vm_count"):
+            return self._create_plan(session_id, state, agents)
+
+        if phase == "plan_review":
+            deployment_id = state.get("deployment_id")
+            if any(word in lowered for word in ("approve", "execute", "deploy now", "build now")):
+                return (
+                    f"The plan is saved as `{deployment_id}`. For safety, infrastructure changes "
+                    "require an authenticated approval and execution call. Review the plan at "
+                    "`GET /api/v1/deployments/{deployment_id}`, then use the approve and execute "
+                    "endpoints documented in the README."
+                )
+            return f"The current deployment plan is `{deployment_id}`. Tell me what requirement you want to change; no resources have been changed."
+
+        store.set_state(session_id, state)
+        return "Tell me the VM count, cloud destination (GAMGEE or own cloud), and cloud model (IaaS, PaaS or hybrid)."
 
     def function_catalogue(self) -> list[dict[str, Any]]:
         return self.runtime.catalogue()
