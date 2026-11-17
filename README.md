@@ -281,8 +281,8 @@ For supported infrastructure changes, the browser experience now supports the fu
 2. **Discover and design.** The agent assesses online enrolled workers, available provider capabilities, CPU/RAM/disk headroom and placement constraints.
 3. **Compile and validate.** The deterministic compiler produces the saved `carpenter.iac/v1` resource graph and provider artifacts. It verifies allow-listed resource kinds, artifact hashes, graph fingerprint and safe YAML parsing.
 4. **Review the plan.** The response displays the deployment ID, full IaC fingerprint, resources, generated artifact filenames, readiness checks and any blockers. No resources have changed.
-5. **Approve.** An admin types `approve` in the same conversation. Approval is attached to that conversation's saved deployment and records the admin role principal and IaC fingerprint in the event log.
-6. **Execute.** The admin types `deploy`, or uses the explicit combined command `approve and deploy`. The Carpenter revalidates the stored IaC bundle, live capacity, placement and provider-worker assignment before dispatching versioned Python FaaS jobs.
+5. **Approve.** An admin types `approve` in the same conversation. Approval is attached to that conversation's saved deployment and records the admin role principal and IaC fingerprint in the event log. For an operator-to-admin handoff, the operator shares the saved deployment UUID; the admin can use the explicit-ID commands below from a separate signed-in session.
+6. **Execute.** The admin types `deploy`, or uses the explicit combined command `approve and deploy`. For a handed-off plan, use `deploy <deployment-id>` or `approve and deploy <deployment-id>`. The Carpenter revalidates the stored IaC bundle, live capacity, placement and provider-worker assignment before dispatching versioned Python FaaS jobs.
 7. **Reconcile.** The user types `status` to see deployment and per-worker job state. A deployment is `succeeded` only after all linked jobs succeed; dead-lettered jobs cause a failed deployment.
 
 The accepted chat action phrases are:
@@ -293,6 +293,12 @@ The accepted chat action phrases are:
 | `deploy` | Execute a plan that is already approved |
 | `approve and deploy` | Approve and immediately dispatch the current saved plan |
 | `status` | Reconcile and display deployment/job status |
+| `approve deployment <deployment-id>` | Approve a saved plan handed off from another browser session |
+| `deploy <deployment-id>` | Execute that deployment after it has been approved |
+| `approve and deploy <deployment-id>` | Approve and dispatch a handed-off plan in one explicit admin command |
+| `status <deployment-id>` | Inspect a handed-off deployment and its provider jobs |
+
+Replace `<deployment-id>` with the UUID returned when the plan is created. The ID is an explicit reference, not an authorisation token: role checks and saved-plan readiness validation still apply.
 
 These are control commands, not LLM-generated actions. The prompt handler recognises the fixed phrases and calls the same approval/execution functions as the administrative API. The model cannot self-approve, bypass readiness checks, or execute arbitrary code. A viewer cannot submit commands; an operator receives an explicit admin-role denial for approval or execution.
 
