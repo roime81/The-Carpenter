@@ -92,7 +92,7 @@ class ConversationalDeploymentCommandTests(unittest.TestCase):
             )
         approve.assert_called_once_with(deployment_id, "web-admin", "web-chat")
         execute.assert_called_once_with(deployment_id, "web-admin", "web-chat")
-        set_state.assert_called_once()
+        self.assertEqual(set_state.call_count, 2)
         self.assertIn(deployment_id, answer)
 
     def test_explicit_deployment_status_supports_handoff(self):
