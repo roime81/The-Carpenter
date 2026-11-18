@@ -326,7 +326,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
             "relation": "hosts",
         })
         for key, raw in vm_config.items():
-            if re.fullmatch(r"net\\d+", str(key)) and isinstance(raw, str):
+            if re.fullmatch(r"net\d+", str(key)) and isinstance(raw, str):
                 options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
                 bridge = options.get("bridge")
                 if bridge:
@@ -341,7 +341,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
                         "target_provider": "proxmox", "target_native_id": bridge_native,
                         "relation": "connected_to",
                     })
-            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\\d+", str(key)) and isinstance(raw, str):
+            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\d+", str(key)) and isinstance(raw, str):
                 volume_ref = raw.split(",", 1)[0]
                 if ":" in volume_ref:
                     pool, volume_name = volume_ref.split(":", 1)
