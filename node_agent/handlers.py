@@ -370,6 +370,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
         "worker_id": payload.get("worker_id"),
         "node": node,
         "cluster_endpoint": endpoint,
+        "managed_node": node,
         "created_or_reconciled": results,
         "observed_resources": observed_resources,
         "observed_relationships": observed_relationships,
@@ -606,8 +607,9 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             nodes.add(node)
             resource("proxmox", "hypervisor_node", f"nodes/{endpoint}/{node}", node,
                      str(item.get("status") or "observed"), {
-                         key: item.get(key) for key in ("cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
-                         if item.get(key) is not None
+                         **{"node": node},
+                         **{key: item.get(key) for key in ("cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
+                            if item.get(key) is not None}
                      })
         elif kind in {"qemu", "lxc"} and node:
             nodes.add(node)
@@ -687,6 +689,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "provider": "proxmox",
         "cluster_endpoint": endpoint,
+        "managed_node": os.getenv("CARPENTER_PROXMOX_NODE"),
         "observed_resources": observed_resources,
         "observed_relationships": observed_relationships,
         "inventory_complete": True,
