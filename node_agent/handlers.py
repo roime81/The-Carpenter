@@ -227,6 +227,8 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     iac_resource = payload.get("iac_resource")
     iac_fingerprint = str(payload.get("iac_fingerprint", ""))
     node = os.environ["CARPENTER_PROXMOX_NODE"]
+    proxmox_url = urllib.parse.urlparse(os.environ["CARPENTER_PROXMOX_URL"])
+    endpoint = (proxmox_url.hostname or "unknown-proxmox") + (f":{proxmox_url.port}" if proxmox_url.port else "")
     template_vmid = int(os.environ["CARPENTER_PROXMOX_TEMPLATE_VMID"])
     if not re.fullmatch(r"[a-f0-9-]{16,64}", deployment_id):
         raise ValueError("A valid Carpenter deployment ID is required")
@@ -253,7 +255,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     observed_resources = [{
         "provider": "proxmox",
         "resource_type": "hypervisor_node",
-        "native_id": f"nodes/{node}",
+        "native_id": f"nodes/{endpoint}/{node}",
         "name": node,
         "status": "online",
         "properties": {"node": node},
@@ -316,7 +318,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
             "name": name, "vmid": vmid, "action": action, "status": state,
             "vcpu": actual_cores, "memory_mb": actual_memory,
         })
-        vm_native = f"qemu/{vmid}"
+        vm_native = f"qemu/{endpoint}/{vmid}"
         observed_resources.append({
             "provider": "proxmox", "resource_type": "virtual_machine",
             "native_id": vm_native, "name": name, "status": state,
@@ -335,7 +337,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
                 options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
                 bridge = options.get("bridge")
                 if bridge:
-                    bridge_native = f"network/{node}/{bridge}"
+                    bridge_native = f"network/{endpoint}/{node}/{bridge}"
                     observed_resources.append({
                         "provider": "proxmox", "resource_type": "network",
                         "native_id": bridge_native, "name": bridge, "status": "observed",
@@ -350,7 +352,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
                 volume_ref = raw.split(",", 1)[0]
                 if ":" in volume_ref:
                     pool, volume_name = volume_ref.split(":", 1)
-                    volume_native = f"volume/{node}/{volume_ref}"
+                    volume_native = f"volume/{endpoint}/{node}/{volume_ref}"
                     observed_resources.append({
                         "provider": "proxmox", "resource_type": "storage_volume",
                         "native_id": volume_native, "name": volume_name, "status": "attached",
@@ -367,6 +369,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
         "iac_fingerprint": iac_fingerprint,
         "worker_id": payload.get("worker_id"),
         "node": node,
+        "cluster_endpoint": endpoint,
         "created_or_reconciled": results,
         "observed_resources": observed_resources,
         "observed_relationships": observed_relationships,
@@ -580,6 +583,8 @@ def gamgee_bootstrap(payload: dict[str, Any]) -> dict[str, Any]:
 
 def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     """Read the Proxmox cluster resource inventory and selected VM attachments."""
+    proxmox_url = urllib.parse.urlparse(os.environ["CARPENTER_PROXMOX_URL"])
+    endpoint = (proxmox_url.hostname or "unknown-proxmox") + (f":{proxmox_url.port}" if proxmox_url.port else "")
     rows = _proxmox_request("GET", "/cluster/resources") or []
     observed_resources: list[dict[str, Any]] = []
     observed_relationships: list[dict[str, Any]] = []
@@ -599,7 +604,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         node = str(item.get("node") or "")
         if kind == "node" and node:
             nodes.add(node)
-            resource("proxmox", "hypervisor_node", f"nodes/{node}", node,
+            resource("proxmox", "hypervisor_node", f"nodes/{endpoint}/{node}", node,
                      str(item.get("status") or "observed"), {
                          key: item.get(key) for key in ("cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
                          if item.get(key) is not None
@@ -627,7 +632,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             storage_name = str(item.get("storage") or (str(item.get("id", "")).split("/")[1] if len(str(item.get("id", "")).split("/")) > 1 else ""))
             if not storage_name:
                 continue
-            native = f"storage/{node}/{storage_name}"
+            native = f"storage/{endpoint}/{node}/{storage_name}"
             resource("proxmox", "storage_pool", native, storage_name,
                      str(item.get("status") or "observed"), {
                          key: item.get(key) for key in ("type", "content", "used", "total", "shared")
@@ -650,13 +655,13 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             config = _proxmox_request("GET", f"/nodes/{encoded_node}/qemu/{vmid}/config") or {}
         except Exception:
             continue
-        vm_native = f"qemu/{vmid}"
+        vm_native = f"qemu/{endpoint}/{vmid}"
         for key, raw in config.items():
             if re.fullmatch(r"net\d+", str(key)) and isinstance(raw, str):
                 options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
                 bridge = options.get("bridge")
                 if bridge:
-                    bridge_native = f"network/{node}/{bridge}"
+                    bridge_native = f"network/{endpoint}/{node}/{bridge}"
                     resource("proxmox", "network", bridge_native, bridge, "observed", {
                         "node": node, "bridge": bridge, "role": "virtual_bridge",
                     })
@@ -669,7 +674,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                 volume_ref = raw.split(",", 1)[0]
                 if ":" in volume_ref:
                     pool, volume_name = volume_ref.split(":", 1)
-                    volume_native = f"volume/{node}/{volume_ref}"
+                    volume_native = f"volume/{endpoint}/{node}/{volume_ref}"
                     resource("proxmox", "storage_volume", volume_native, volume_name, "attached", {
                         "node": node, "device": key, "storage_pool": pool,
                     })
@@ -681,6 +686,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "provider": "proxmox",
+        "cluster_endpoint": endpoint,
         "observed_resources": observed_resources,
         "observed_relationships": observed_relationships,
         "inventory_complete": True,
