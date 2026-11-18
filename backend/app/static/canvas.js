@@ -31,6 +31,8 @@
   let labelsVisible = true;
   let source = null;
   let fitted = false;
+  let graphMode = "all";
+  let activeGraph = snapshot;
 
   const fixed = {
     "stage:root": [560, 310],
@@ -90,11 +92,11 @@
   };
   function computePositions() {
     positions = new Map();
-    const nodes = snapshot.nodes || [];
+    const nodes = activeGraph.nodes || [];
     const byId = new Map(nodes.map(node=>[node.id,node]));
     const childrenByParent = new Map();
     const incoming = new Map();
-    (snapshot.edges||[]).forEach(edge=>{
+    (activeGraph.edges||[]).forEach(edge=>{
       if(!incoming.has(edge.target)) incoming.set(edge.target,[]);
       incoming.get(edge.target).push(edge.source);
     });
@@ -172,12 +174,23 @@
     fitted=true;
   }
   function render() {
+    const allNodes=snapshot.nodes||[];
+    const visible = node => graphMode==="all"
+      || (graphMode==="topology" && (node.kind==="topology" || node.id==="stage:root"))
+      || (graphMode==="workflow" && node.kind!=="topology");
+    const nodes=allNodes.filter(visible);
+    const ids=new Set(nodes.map(node=>node.id));
+    activeGraph={
+      nodes,
+      edges:(snapshot.edges||[]).filter(edge=>ids.has(edge.source)&&ids.has(edge.target))
+    };
+    const byId=new Map(nodes.map(node=>[node.id,node]));
+    if(!byId.has(selectedId)) selectedId=nodes[0]?.id||"stage:root";
     computePositions();
     meshLayer.replaceChildren();edgesLayer.replaceChildren();nodesLayer.replaceChildren();
-    const nodes=snapshot.nodes||[],byId=new Map(nodes.map(node=>[node.id,node]));
     const topologyCount=nodes.filter(node=>node.kind==="topology").length;
     const explicit=new Set();
-    (snapshot.edges||[]).forEach(edge=>{
+    (activeGraph.edges||[]).forEach(edge=>{
       const key=[edge.source,edge.target].sort().join("|");explicit.add(key);
       const a=positions.get(edge.source),b=positions.get(edge.target);
       if(!a||!b) return;
@@ -222,10 +235,9 @@
     const count=nodes.length,jobs=nodes.filter(node=>node.kind==="job").length,workers=nodes.filter(node=>node.kind==="worker").length;
     const done=nodes.filter(node=>node.status==="succeeded").length,running=nodes.filter(node=>node.status==="running").length,failed=nodes.filter(node=>node.status==="failed").length;
     counter.textContent=count+" NODES";
-    summary.textContent=`${count} connected nodes · ${jobs} jobs · ${workers} workers · ${running} running · ${done} succeeded · ${failed} failed`;
-    hint.classList.toggle("hidden",count>1);
+    summary.textContent=`${count} ${graphMode==="topology"?"infrastructure":graphMode==="workflow"?"execution":"connected"} nodes · ${jobs} jobs · ${workers} workers · ${running} running · ${done} succeeded · ${failed} failed`;
+    hint.classList.toggle("hidden",count>1 || (snapshot.nodes||[]).length>1);
     if(!fitted) fitNetwork();
-    if(!byId.has(selectedId)) selectedId=nodes[0]?.id||"stage:root";
     renderInspector();
   }
   function addFact(label,value) {
@@ -383,6 +395,16 @@
     labelsVisible=!labelsVisible;toggleLabels.textContent=labelsVisible?"Labels on":"Labels off";
     toggleLabels.setAttribute("aria-pressed",String(labelsVisible));render();
   });
+  document.querySelectorAll("[data-graph-filter]").forEach(button=>button.addEventListener("click",()=>{
+    graphMode=button.dataset.graphFilter||"all";
+    document.querySelectorAll("[data-graph-filter]").forEach(item=>{
+      const selected=item===button;
+      item.classList.toggle("active",selected);
+      item.setAttribute("aria-pressed",String(selected));
+    });
+    fitted=false;
+    render();
+  }));
   document.getElementById("fit-canvas")?.addEventListener("click",()=>{fitted=false;fitNetwork();});
   const refreshButton=document.getElementById("refresh-topology");
   refreshButton?.addEventListener("click",async()=>{
