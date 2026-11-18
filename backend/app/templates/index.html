@@ -3,61 +3,102 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0c0d0f">
-  <title>{{ app_name }} — AI Cloud Deployment Agent</title>
+  <meta name="theme-color" content="#080b10">
+  <title>{{ app_name }} — Living Infrastructure Canvas</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  <script defer src="{{ url_for('static', path='/canvas.js') }}"></script>
 </head>
-<body>
-  <main class="shell">
-    <header class="brand">
-      <div class="brand-mark" aria-hidden="true">C</div>
-      <div class="brand-name">{{ app_name }}</div>
-      <div class="brand-tagline">AI CLOUD DEPLOYMENT · AI IaC AGENT</div>
-      <div class="identity-bar">
-        <span>Signed in · {{ identity.role | upper }}</span>
+<body class="canvas-app">
+  <main class="workspace">
+    <header class="topbar">
+      <a class="brand-lockup" href="/" aria-label="The Carpenter home">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span><strong>{{ app_name }}</strong><small>AI INFRASTRUCTURE AGENT</small></span>
+      </a>
+      <div class="topbar-center"><span class="live-indicator"></span> CONTROL PLANE <i></i> LIVING CANVAS</div>
+      <div class="topbar-right">
+        <span class="role-chip">{{ identity.role | upper }}</span>
         <form method="post" action="/logout">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button type="submit" class="logout-button">Sign out</button>
+          <button type="submit" class="quiet-button">Sign out ↗</button>
         </form>
       </div>
     </header>
 
-    <section class="conversation" aria-live="polite">
-      {% if not messages %}
-      <div class="welcome">
-        <div class="eyebrow">DESCRIBE THE OUTCOME. THE AGENT BUILDS IT.</div>
-        <h1>What shall we build?</h1>
-        <p>Describe the cloud, platform or workload you need. I discover your environment, generate the infrastructure plan and provision supported resources. No YAML authoring required.</p>
+    <section class="canvas-heading">
+      <div>
+        <div class="eyebrow">FROM A SINGLE DOT TO A COMPLETE CLOUD</div>
+        <h1>Infrastructure, <em>taking shape.</em></h1>
+        <p>Watch the agent turn intent into a connected infrastructure blueprint — every step, dependency and outcome made visible.</p>
       </div>
-      {% endif %}
-
-      {% for item in messages %}
-      <article class="message {{ item.role }}">
-        <div class="message-role">{{ "YOU" if item.role == "user" else "THE CARPENTER" }}</div>
-        <div class="message-content">{{ item.content }}</div>
-      </article>
-      {% endfor %}
+      <div class="canvas-meta"><span class="meta-label">WORKSPACE</span><strong>Untitled environment</strong><span class="meta-sub">{{ agent_count }} enrolled node{% if agent_count != 1 %}s{% endif %} detected</span></div>
     </section>
 
-    <section class="composer">
+    <section class="canvas-stage" aria-label="Interactive infrastructure progress canvas">
+      <div class="canvas-toolbar">
+        <div class="canvas-legend">
+          <span><b class="legend-dot dot-idle"></b> Dormant</span>
+          <span><b class="legend-dot dot-active"></b> In progress</span>
+          <span><b class="legend-dot dot-done"></b> Complete</span>
+          <span><b class="legend-dot dot-blocked"></b> Attention</span>
+        </div>
+        <div class="canvas-actions">
+          <button type="button" class="tool-button" id="fit-canvas">Fit canvas</button>
+          <button type="button" class="tool-button" id="toggle-labels" aria-pressed="true">Labels on</button>
+        </div>
+      </div>
+      <div class="graph-viewport" id="graph-viewport">
+        <svg id="infrastructure-graph" viewBox="0 0 1120 620" role="img" aria-label="The Carpenter workflow graph grows from the launcher node into connected infrastructure stages">
+          <defs>
+            <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(161,177,198,.075)" stroke-width="1"/></pattern>
+            <filter id="glow"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            <linearGradient id="root-fill" x1="0" x2="1"><stop offset="0" stop-color="#b5f2df"/><stop offset="1" stop-color="#62cdb2"/></linearGradient>
+          </defs>
+          <rect width="1120" height="620" fill="url(#grid)"/>
+          <g id="graph-edges"></g>
+          <g id="graph-nodes"></g>
+        </svg>
+        <div class="canvas-empty-hint" id="canvas-hint"><span class="hint-orbit"><i></i></span><strong>Everything begins here.</strong><small>Describe what you want to build. The Carpenter will expand this canvas as the workflow takes shape.</small></div>
+      </div>
+      <div class="canvas-bottom"><span id="graph-summary">01 origin node <i>·</i> awaiting intent</span><span>SELECT ANY NODE TO INSPECT</span></div>
+    </section>
+
+    <section class="lower-grid">
+      <aside class="inspector panel" id="node-inspector" aria-live="polite">
+        <div class="panel-heading"><div><span class="eyebrow">NODE INSPECTOR</span><h2 id="inspector-title">The Carpenter launcher</h2></div><span class="status-pill idle" id="inspector-status">DORMANT</span></div>
+        <p id="inspector-description">The origin point for every infrastructure journey. Submit an outcome to begin discovery and watch the canvas expand.</p>
+        <div class="inspector-facts" id="inspector-facts"><div><span>TYPE</span><strong>Agent launcher</strong></div><div><span>ROLE</span><strong>Orchestration root</strong></div><div><span>DEPENDENCIES</span><strong>None</strong></div></div>
+      </aside>
+
+      <section class="activity panel">
+        <div class="panel-heading"><div><span class="eyebrow">EXECUTION JOURNAL</span><h2>What is happening</h2></div><span class="journal-count">{{ messages | length }} entries</span></div>
+        <div class="journal-list" id="journal-list">
+          {% if not messages %}
+          <div class="journal-empty"><span class="journal-spark">✳</span><div><strong>Waiting for your first instruction</strong><small>Discovery, design decisions and provisioning outcomes will appear here.</small></div></div>
+          {% else %}
+            {% for item in messages[-6:] %}
+            <article class="journal-entry {{ item.role }}"><span class="journal-marker"></span><div><small>{{ "YOU" if item.role == "user" else "THE CARPENTER" }}</small><p>{{ item.content }}</p></div></article>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </section>
+    </section>
+
+    <section class="prompt-dock">
       {% if can_prompt %}
-      <form method="post" action="/prompt">
+      <form method="post" action="/prompt" id="prompt-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label class="visually-hidden" for="message">Tell The Carpenter what to build</label>
-        <textarea id="message" name="message" rows="1" maxlength="8000"
-          placeholder="Describe the cloud, platform or workload you want. No YAML required..." required></textarea>
-        <button type="submit" aria-label="Send prompt">↑</button>
+        <div class="prompt-orb" aria-hidden="true"><span></span></div>
+        <label class="visually-hidden" for="message">Describe the infrastructure outcome</label>
+        <textarea id="message" name="message" rows="1" maxlength="8000" placeholder="Tell The Carpenter what you want to build…" required></textarea>
+        <div class="prompt-right"><span>ENTER TO SEND</span><button type="submit" aria-label="Send prompt">↑</button></div>
       </form>
       {% else %}
-      <div class="read-only-notice">You are signed in as a viewer. Conversation is read-only; ask an operator to create a plan.</div>
+      <div class="read-only-notice">Viewer access · conversation is read-only</div>
       {% endif %}
-      <div class="composer-foot">
-        <span>AI IaC Agent · Python-native FaaS</span>
-        <span>{{ agent_count }} online node{% if agent_count != 1 %}s{% endif %}</span>
-      </div>
+      <div class="dock-foot"><span>AI-LED DISCOVERY <i>·</i> DETERMINISTIC IaC <i>·</i> GUARDED EXECUTION</span><span>NO MANUAL YAML REQUIRED</span></div>
     </section>
-
-    <footer>UNDERSTAND · DISCOVER · DESIGN · COMPILE · PROVISION · RECONCILE</footer>
+    <footer>THE CARPENTER <span>·</span> LIVING INFRASTRUCTURE CANVAS <span>·</span> {{ identity.role | upper }} SESSION</footer>
   </main>
 </body>
 </html>
