@@ -2,6 +2,21 @@
 
 All notable changes to The Carpenter are documented here.
 
+## 0.7.0 — 2026-11-18
+
+### Infrastructure Digital Twin
+- Added durable typed resource inventory, relationships and versioned observation history tables to the control-plane store.
+- Added stable endpoint-scoped provider/native resource IDs so same-named resources in different Proxmox/Kubernetes environments remain distinct.
+- Ingested heartbeat-backed physical hosts, private network interfaces/subnets, mounted storage, hypervisor capabilities and runtime presence.
+- Added optional Proxmox cluster inventory discovery for hypervisor nodes, QEMU/LXC guests, storage pools, bridges and attached VM volumes.
+- Added optional Kubernetes namespace inventory discovery for controllers, ReplicaSets, Services, ClusterIPs, Pods, pod IPs, PVCs, PVs and pod-scheduled nodes where RBAC permits.
+- Projected provider observations and typed relationships into the same live graph as the execution workflow; actual resource status follows worker/provider observations.
+- Imported successful provider operation results after FaaS completion, so resources created or changed by The Carpenter appear in the Digital Twin as observed objects.
+- Added authenticated `/api/v1/twin/snapshot`, `/api/v1/twin/refresh` and `/api/v1/twin/resources/{resource_id}/history` endpoints.
+- Added operator/admin **Refresh topology** control; refresh queues read-only inventory jobs only on eligible online workers.
+- Added tests for resource identity/version/history, Proxmox resource relationships and Kubernetes workload/network/storage topology.
+- Documented that the twin is installation-wide in this release, that Kubernetes inventory is namespace/RBAC-scoped, and that AWS/Azure/GCP inventories, deletion inference and automated drift remediation are follow-on work.
+
 ## 0.6.0 — 2026-11-18
 
 ### Live Infrastructure Network
