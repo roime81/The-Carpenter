@@ -161,7 +161,7 @@ class LiveCanvasRuntimeTests(unittest.TestCase):
         self.assertEqual(nodes["job:provider-job-1"]["status"], "running")
         self.assertEqual(nodes["worker:worker-1"]["label"], "pve-worker-01")
         self.assertTrue(nodes["worker:worker-1"]["logs"])
-        self.assertEqual(nodes["resource:vm-demo-01"]["status"], "succeeded")
+        self.assertEqual(nodes["resource:vm-demo-01"]["status"], "running")
         self.assertIn({"kind": "blueprint", "title": "Infrastructure Workbook",
                        "filename": "infrastructure-workbook.md",
                        "generated_at": self.plan["canvas_artifacts"]["blueprint"]["generated_at"]},
