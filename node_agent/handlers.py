@@ -760,7 +760,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             desired = int(spec.get("replicas", 1) or 1)
             ready = int(status.get("readyReplicas", status.get("numberReady", 0)) or 0)
             kind = plural.rstrip("s")
-            native = f"{plural}/{namespace}/{name}"
+            native = f"{plural}/{endpoint}/{namespace}/{name}"
             containers = (
                 ((spec.get("template") or {}).get("spec") or {}).get("containers") or []
             )
@@ -791,7 +791,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         name = str(metadata.get("name") or "")
         if not name:
             continue
-        native = f"services/{namespace}/{name}"
+        native = f"services/{endpoint}/{namespace}/{name}"
         observed_resources.append({
             "provider": "kubernetes", "resource_type": "service",
             "native_id": native, "name": name, "status": "observed",
@@ -826,7 +826,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         name = str(metadata.get("name") or "")
         if not name:
             continue
-        native = f"pvc/{namespace}/{name}"
+        native = f"pvc/{endpoint}/{namespace}/{name}"
         observed_resources.append({
             "provider": "kubernetes", "resource_type": "storage_volume",
             "native_id": native, "name": name,
@@ -851,7 +851,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         name = str(metadata.get("name") or "")
         if not name:
             continue
-        native = f"pods/{namespace}/{name}"
+        native = f"pods/{endpoint}/{namespace}/{name}"
         phase = str(status.get("phase") or "Unknown").casefold()
         observed_resources.append({
             "provider": "kubernetes", "resource_type": "workload_instance",
@@ -883,7 +883,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                     break
         node_name = str(spec.get("nodeName") or "")
         if node_name:
-            node_native = f"nodes/{node_name}"
+            node_native = f"nodes/{endpoint}/{node_name}"
             if not any(item.get("native_id") == node_native for item in observed_resources):
                 observed_resources.append({
                     "provider": "kubernetes", "resource_type": "compute_host",
