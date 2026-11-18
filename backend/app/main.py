@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import re
 import secrets
 import uuid
@@ -7,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -33,6 +36,7 @@ from app.deployment_engine import DeploymentEngine
 from app.iac_engine import validate_iac_bundle
 from app.web_auth import COOKIE_NAME, SESSION_TTL_SECONDS, issue_session, read_session, verify_csrf
 from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
+from app.canvas_runtime import build_canvas_snapshot, get_canvas_artifact
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
@@ -365,6 +369,16 @@ def worker_claim(
     if not agent or not agent.get("online"):
         raise HTTPException(status_code=409, detail="Worker has no fresh heartbeat.")
     job = store.claim_job(worker_id, settings.worker_lease_seconds)
+    if job:
+        payload = job.get("payload", {})
+        store.record_event("faas.job.claimed", job["job_id"], {
+            "worker_id": worker_id,
+            "function_name": job.get("function_name"),
+            "function_version": job.get("function_version"),
+            "attempt": job.get("attempt"),
+            "deployment_id": payload.get("deployment_id"),
+            "session_id": payload.get("session_id"),
+        })
     return job
 
 
@@ -382,9 +396,17 @@ def worker_complete(
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
     if job and job["function_name"].startswith("discovery."):
         store.merge_agent_discovery(worker_id, job["function_name"], request.result)
-    store.record_event("faas.job.succeeded", job_id, {"worker_id": worker_id})
-    if job and job.get("payload", {}).get("deployment_id"):
-        reconcile_deployment_status(job["payload"]["deployment_id"])
+    payload = (job or {}).get("payload", {})
+    store.record_event("faas.job.succeeded", job_id, {
+        "worker_id": worker_id,
+        "function_name": (job or {}).get("function_name"),
+        "function_version": (job or {}).get("function_version"),
+        "deployment_id": payload.get("deployment_id"),
+        "session_id": payload.get("session_id"),
+        "result_keys": sorted(request.result.keys())[:30],
+    })
+    if payload.get("deployment_id"):
+        reconcile_deployment_status(payload["deployment_id"])
     return {"accepted": True}
 
 
@@ -396,13 +418,23 @@ def worker_fail(
     x_agent_token: str = Header(default="", alias="X-Agent-Token"),
 ) -> dict[str, bool]:
     _require_agent(x_agent_token)
+    job = store.get_job(job_id)
     accepted = store.fail_job(job_id, worker_id, request.lease_token, request.error)
     if not accepted:
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
-    store.record_event("faas.job.failed", job_id, {"worker_id": worker_id, "error": request.error})
-    job = store.get_job(job_id)
-    if job and job.get("payload", {}).get("deployment_id"):
-        reconcile_deployment_status(job["payload"]["deployment_id"])
+    updated_job = store.get_job(job_id) or job or {}
+    payload = updated_job.get("payload", {})
+    store.record_event("faas.job.failed", job_id, {
+        "worker_id": worker_id,
+        "function_name": updated_job.get("function_name"),
+        "function_version": updated_job.get("function_version"),
+        "deployment_id": payload.get("deployment_id"),
+        "session_id": payload.get("session_id"),
+        "status": updated_job.get("status"),
+        "error": request.error[:1200],
+    })
+    if payload.get("deployment_id"):
+        reconcile_deployment_status(payload["deployment_id"])
     return {"accepted": True}
 
 
@@ -730,3 +762,53 @@ def prompt(
     store.add_message(session_id, "assistant", answer)
     response = RedirectResponse("/", status_code=303)
     return response
+
+
+@app.get("/api/v1/canvas/snapshot")
+def canvas_snapshot(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    return build_canvas_snapshot(_conversation_id(identity))
+
+
+@app.get("/api/v1/canvas/artifacts/{kind}")
+def canvas_artifact(kind: str, request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    artifact = get_canvas_artifact(_conversation_id(identity), kind)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="The requested canvas artifact is not available in this session.")
+    return artifact
+
+
+@app.get("/api/v1/canvas/stream")
+async def canvas_stream(request: Request) -> StreamingResponse:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    session_id = _conversation_id(identity)
+
+    async def stream_snapshots():
+        previous_digest = None
+        while not await request.is_disconnected():
+            snapshot = build_canvas_snapshot(session_id)
+            payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), default=str)
+            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            if digest != previous_digest:
+                yield f"id: {digest}\\nevent: snapshot\\ndata: {payload}\\n\\n"
+                previous_digest = digest
+            else:
+                yield ": heartbeat\\n\\n"
+            await asyncio.sleep(1.5)
+
+    return StreamingResponse(
+        stream_snapshots(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
