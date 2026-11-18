@@ -19,6 +19,7 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 
 ## Contents
 
+- [Infrastructure Digital Twin](#infrastructure-digital-twin-070)
 - [Principles and architecture](#principles-and-architecture)
 - [Implementation status](#implementation-status)
 - [Quick start](#quick-start)
