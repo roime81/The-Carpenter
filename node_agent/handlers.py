@@ -515,12 +515,12 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     ]
     observed_relationships = [
         {"source_provider": "kubernetes", "source_native_id": f"api/{endpoint}",
-         "target_provider": "kubernetes", "target_native_id": f"namespace/{namespace}",
+         "target_provider": "kubernetes", "target_native_id": f"namespace/{endpoint}/{namespace}",
          "relation": "contains"},
-        {"source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+        {"source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
          "target_provider": "kubernetes", "target_native_id": f"deployment/{namespace}/{name}",
          "relation": "contains"},
-        {"source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+        {"source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
          "target_provider": "kubernetes", "target_native_id": f"service/{namespace}/{name}",
          "relation": "contains"},
         {"source_provider": "kubernetes", "source_native_id": f"service/{namespace}/{name}",
@@ -724,13 +724,13 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         },
         {
             "provider": "kubernetes", "resource_type": "namespace",
-            "native_id": f"namespace/{namespace}", "name": namespace,
+            "native_id": f"namespace/{endpoint}/{namespace}", "name": namespace,
             "status": "observed", "properties": {"namespace": namespace},
         },
     ]
     observed_relationships: list[dict[str, Any]] = [{
         "source_provider": "kubernetes", "source_native_id": f"api/{endpoint}",
-        "target_provider": "kubernetes", "target_native_id": f"namespace/{namespace}",
+        "target_provider": "kubernetes", "target_native_id": f"namespace/{endpoint}/{namespace}",
         "relation": "contains",
     }]
     warnings: list[str] = []
@@ -778,7 +778,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                 },
             })
             observed_relationships.append({
-                "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+                "source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
                 "target_provider": "kubernetes", "target_native_id": native,
                 "relation": "contains",
             })
@@ -805,7 +805,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             },
         })
         observed_relationships.append({
-            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
             "target_provider": "kubernetes", "target_native_id": native,
             "relation": "contains",
         })
@@ -839,7 +839,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             },
         })
         observed_relationships.append({
-            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
             "target_provider": "kubernetes", "target_native_id": native,
             "relation": "contains",
         })
@@ -866,7 +866,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             },
         })
         observed_relationships.append({
-            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
             "target_provider": "kubernetes", "target_native_id": native,
             "relation": "contains",
         })
