@@ -43,8 +43,8 @@
   }
   function render(){
     edges.innerHTML=""; nodesLayer.innerHTML="";
-    links.forEach(([a,b])=>{const na=nodeMap[a],nb=nodeMap[b],sa=states[a],sb=states[b];let status=sb==="done"?"done":sb==="active"?"active":"";make("path",{d:`M ${na.x} ${na.y} C ${(na.x+nb.x)/2} ${na.y}, ${(na.x+nb.x)/2} ${nb.y}, ${nb.x} ${nb.y}`,class:"graph-edge "+status},edges);});
-    nodes.forEach(n=>{
+    links.forEach(([a,b])=>{if(states[a]==="idle"||states[b]==="idle")return;const na=nodeMap[a],nb=nodeMap[b],sb=states[b];let status=sb==="done"?"done":sb==="active"?"active":"";make("path",{d:`M ${na.x} ${na.y} C ${(na.x+nb.x)/2} ${na.y}, ${(na.x+nb.x)/2} ${nb.y}, ${nb.x} ${nb.y}`,class:"graph-edge "+status},edges);});
+    nodes.filter(n=>states[n.id]!=="idle").forEach(n=>{
       const s=states[n.id],g=make("g",{class:"graph-node status-"+s,tabindex:"0",role:"button","aria-label":n.label+", "+s,"data-node":n.id},nodesLayer);
       make("circle",{cx:n.x,cy:n.y,r:n.r+8,class:"node-pulse"},g);
       make("circle",{cx:n.x,cy:n.y,r:n.r+4,class:"node-halo",stroke:s==="done"?"#82e2c6":s==="active"?"#85baff":"#657181"},g);
@@ -57,8 +57,8 @@
       if(n.id===selected)make("circle",{cx:n.x,cy:n.y,r:n.r+13,fill:"none",stroke:"rgba(220,239,248,.7)","stroke-width":"1","stroke-dasharray":"2 4"},g);
       g.addEventListener("click",()=>selectNode(n.id));g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();selectNode(n.id);}});
     });
-    const active=nodes.filter(n=>states[n.id]==="active").length,done=nodes.filter(n=>states[n.id]==="done").length;
-    summary.textContent=`${done+1} nodes active in journey · ${done} complete · ${active} in progress`;
+    const visible=nodes.filter(n=>states[n.id]!=="idle").length,active=nodes.filter(n=>states[n.id]==="active").length,done=nodes.filter(n=>states[n.id]==="done").length;
+    summary.textContent=`${visible} connected nodes · ${done} complete · ${active} in progress`;
   }
   function applyConversationState(){
     const userEntries=[...document.querySelectorAll(".journal-entry.user")].map(e=>e.innerText.toLowerCase());
