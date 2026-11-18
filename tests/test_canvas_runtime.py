@@ -152,7 +152,11 @@ class LiveCanvasRuntimeTests(unittest.TestCase):
 
     def test_snapshot_projects_real_jobs_resources_and_worker_events(self):
         patches = self._patched_store()
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch.object(canvas_runtime.infrastructure_twin, "list_twin_snapshot", return_value={
+                 "resources": [], "relationships": [], "resource_count": 0,
+                 "relationship_count": 0, "updated_at": "",
+             }), patch.object(canvas_runtime.store, "list_twin_observations", return_value=[]):
             result = canvas_runtime.build_canvas_snapshot(self.session_id)
 
         nodes = {node["id"]: node for node in result["nodes"]}
