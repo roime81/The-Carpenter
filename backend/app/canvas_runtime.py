@@ -303,9 +303,10 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
         if stage_id in {node["id"] for node in nodes}:
             link(stage_id, f"job:{job_id}", "job")
         if worker_id:
-            worker_nodes.setdefault(worker_id, {"jobs": [], "statuses": [], "first": job.get("created_at")})
+            worker_nodes.setdefault(worker_id, {"jobs": [], "statuses": [], "logs": [], "first": job.get("created_at")})
             worker_nodes[worker_id]["jobs"].append(job)
             worker_nodes[worker_id]["statuses"].append(job.get("status"))
+            worker_nodes[worker_id]["logs"].extend(logs)
             if job.get("worker_id"):
                 link(f"job:{job_id}", f"worker:{worker_id}", "worker")
             if stage_id in {node["id"] for node in nodes}:
@@ -323,7 +324,10 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
                  description=f"Enrolled worker {worker_id} · {'online' if worker.get('online') else 'offline or not recently seen'}",
                  worker_id=worker_id, created_at=record.get("first"), updated_at=worker.get("last_seen"),
                  capabilities=list((worker.get("capabilities") or {}).keys())[:16],
-                 job_count=len(record["jobs"]))
+                 job_count=len(record["jobs"]),
+                 logs=sorted(record["logs"], key=lambda item: item.get("at") or "")[-20:],
+                 started_at=next((item.get("at") for item in record["logs"] if item.get("event_type") == "faas.job.claimed"), None),
+                 completed_at=max((item.get("at") for item in record["logs"] if item.get("event_type") == "faas.job.succeeded"), default=None))
 
     safe_events = [{
         "event_id": event.get("event_id"), "event_type": event.get("event_type"),
