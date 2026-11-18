@@ -4,6 +4,8 @@ All notable changes to The Carpenter are documented here.
 
 ## 0.7.0 — 2026-11-18
 
+**Release notes:** [The Carpenter v0.7.0 — Infrastructure Digital Twin](docs/releases/v0.7.0.md)
+
 ### Infrastructure Digital Twin
 - Added durable typed resource inventory, relationships and versioned observation history tables to the control-plane store.
 - Added stable endpoint-scoped provider/native resource IDs so same-named resources in different Proxmox/Kubernetes environments remain distinct.
