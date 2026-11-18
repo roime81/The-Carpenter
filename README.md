@@ -37,13 +37,14 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 
 ## Living Infrastructure Canvas (0.5.0)
 
-The authenticated web console is now a visual-first, transparent workflow canvas. The Carpenter begins as a single launcher node and presents the infrastructure journey as connected, selectable stages: intent, discovery, blueprint, playbook, versioned native functions, deterministic IaC, human approval, distributed provisioning and reconciliation.
+The authenticated web console is now a visual-first, transparent workflow canvas with a porcelain-white theme, soft neutral surfaces and restrained teal/blue status accents. The Carpenter begins as a single launcher node and presents the infrastructure journey as connected, selectable stages: intent, discovery, blueprint, playbook, versioned native functions, deterministic IaC, human approval, distributed provisioning and reconciliation.
 
 - **Graph view:** dependency edges and expandable workflow nodes make the build sequence visible at a glance.
 - **Status language:** dormant, in progress, complete and attention states use distinct, accessible color treatments.
 - **Node inspector:** select any node to inspect its purpose, role, dependency and execution boundary.
 - **Execution journal:** recent conversation entries are visible alongside the graph.
 - **Prompt dock:** the natural-language composer remains available while the canvas is in view.
+- **White visual system:** a light, low-glare interface keeps the graph, dependency paths and execution status legible without dark panels or neon effects.
 - **Honest state representation:** the current UI derives visible state from the saved conversation response. It does not claim to be a live event stream; real-time worker telemetry and event-driven graph updates remain a follow-on integration.
 
 The Blueprint and Playbook nodes are visual workflow concepts in this release. They do not imply that separate workbook or playbook files are persisted. The existing saved deployment plan, IaC resource graph, approval and distributed FaaS job lifecycle remain the authoritative execution records.
