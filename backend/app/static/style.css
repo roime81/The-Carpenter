@@ -215,3 +215,6 @@ body.dialog-open{overflow:hidden}
 .graph-filter.active{background:#fff;color:#315f8d;box-shadow:0 1px 4px rgba(45,74,103,.12);font-weight:650}
 @media(max-width:900px){.toolbar-left{gap:10px}.graph-filters{flex:0 0 auto}}
 @media(max-width:650px){.canvas-toolbar{height:auto;min-height:47px;align-items:flex-start;padding:9px;gap:9px;flex-direction:column}.toolbar-left{width:100%;align-items:flex-start;flex-direction:column}.graph-filters{width:100%;justify-content:space-between}.canvas-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}.graph-filter{flex:1;text-align:center}}
+
+.graph-node.resource-workload_instance .node-core{fill:#4b91b7;stroke:#2f6e93}
+.graph-node.resource-storage_pool .node-core{fill:#aa9a7b;stroke:#897653}
