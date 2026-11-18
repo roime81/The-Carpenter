@@ -412,7 +412,7 @@ def worker_complete(
     if job and job["function_name"].startswith("discovery."):
         store.merge_agent_discovery(worker_id, job["function_name"], request.result)
         try:
-            infrastructure_twin.observe_discovery_result(worker_id, job["function_name"], request.result)
+            infrastructure_twin.observe_discovery_result(worker_id, job["function_name"], request.result, {**job, "worker_id": worker_id})
         except Exception as exc:
             store.record_event("twin.observation.failed", worker_id, {
                 "source": job["function_name"], "error_type": type(exc).__name__,
