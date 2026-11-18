@@ -28,19 +28,26 @@
     <section class="canvas-heading">
       <div>
         <div class="eyebrow">EVERY WORKER. EVERY RESOURCE. EVERY EVENT.</div>
-        <h1>Infrastructure, <em>in motion.</em></h1>
-        <p>A live network of the agent, worker jobs, enrolled machines, design artifacts and cloud resources. Nodes appear as real work is queued, claimed and completed.</p>
+        <h1>Infrastructure, <em>mapped.</em></h1>
+        <p>One shared network for real cloud topology and the agent activity that changes it. Machines, clusters, networks, storage and services appear from provider observations—not just from a deployment plan.</p>
       </div>
       <div class="canvas-meta"><span class="meta-label">WORKSPACE</span><strong id="deployment-name">Live infrastructure network</strong><span class="meta-sub">{{ agent_count }} enrolled node{% if agent_count != 1 %}s{% endif %} detected</span></div>
     </section>
 
     <section class="canvas-stage" aria-label="Live infrastructure network">
       <div class="canvas-toolbar">
-        <div class="canvas-legend">
-          <span><b class="legend-dot dot-idle"></b> Waiting</span>
-          <span><b class="legend-dot dot-active"></b> Running</span>
-          <span><b class="legend-dot dot-done"></b> Succeeded</span>
-          <span><b class="legend-dot dot-blocked"></b> Failed</span>
+        <div class="toolbar-left">
+          <div class="canvas-legend">
+            <span><b class="legend-dot dot-idle"></b> Waiting</span>
+            <span><b class="legend-dot dot-active"></b> Running</span>
+            <span><b class="legend-dot dot-done"></b> Observed / complete</span>
+            <span><b class="legend-dot dot-blocked"></b> Failed</span>
+          </div>
+          <div class="graph-filters" role="group" aria-label="Graph view">
+            <button type="button" class="graph-filter active" data-graph-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="graph-filter" data-graph-filter="topology" aria-pressed="false">Infrastructure</button>
+            <button type="button" class="graph-filter" data-graph-filter="workflow" aria-pressed="false">Execution</button>
+          </div>
         </div>
         <div class="canvas-actions">
           <span class="stream-counter" id="stream-counter">0 NODES</span>
