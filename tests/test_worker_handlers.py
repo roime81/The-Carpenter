@@ -84,17 +84,21 @@ class WorkerCapabilityTests(unittest.TestCase):
             {"type": "qemu", "node": "pve-01", "vmid": 101, "name": "web-01", "status": "running", "maxcpu": 4},
             {"type": "storage", "node": "pve-01", "storage": "local-lvm", "status": "active", "total": 100000},
         ]
-        with patch("handlers._proxmox_request", side_effect=[
+        with patch.dict(os.environ, {
+            "CARPENTER_PROXMOX_URL": "https://pve.example.test:8006",
+            "CARPENTER_PROXMOX_TOKEN_ID": "worker@pve!inventory",
+            "CARPENTER_PROXMOX_TOKEN_SECRET": "test-secret",
+        }, clear=True), patch("handlers._proxmox_request", side_effect=[
             inventory_rows,
             {"net0": "virtio=BC:24:11:22:33:44,bridge=vmbr0", "scsi0": "local-lvm:vm-101-disk-0,size=40G"},
         ]) as request:
             result = proxmox_inventory({})
 
         resources = {(item["resource_type"], item["native_id"]): item for item in result["observed_resources"]}
-        self.assertIn(("hypervisor_node", "nodes/pve-01"), resources)
-        self.assertIn(("virtual_machine", "qemu/101"), resources)
-        self.assertIn(("network", "network/pve-01/vmbr0"), resources)
-        self.assertIn(("storage_volume", "volume/pve-01/local-lvm:vm-101-disk-0"), resources)
+        self.assertIn(("hypervisor_node", "nodes/pve.example.test:8006/pve-01"), resources)
+        self.assertIn(("virtual_machine", "qemu/pve.example.test:8006/101"), resources)
+        self.assertIn(("network", "network/pve.example.test:8006/pve-01/vmbr0"), resources)
+        self.assertIn(("storage_volume", "volume/pve.example.test:8006/pve-01/local-lvm:vm-101-disk-0"), resources)
         relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
                      for item in result["observed_relationships"]}
         self.assertIn(("nodes/pve-01", "qemu/101", "hosts"), relations)
