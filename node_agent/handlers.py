@@ -245,6 +245,21 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     # worker attempt lost its lease or acknowledgement.
     existing = _proxmox_request("GET", "/cluster/resources?type=vm") or []
     results = []
+    observed_resources = [{
+        "provider": "proxmox",
+        "resource_type": "hypervisor_node",
+        "native_id": f"nodes/{node}",
+        "name": node,
+        "status": "online",
+        "properties": {"node": node},
+    }]
+    observed_relationships = [{
+        "source_provider": "carpenter-agent",
+        "source_native_id": str(payload.get("worker_id") or ""),
+        "target_provider": "proxmox",
+        "target_native_id": f"nodes/{node}",
+        "relation": "manages",
+    }] if payload.get("worker_id") else []
     encoded_node = urllib.parse.quote(node, safe="")
     for vm in vm_definitions:
         name = str(vm.get("name", ""))
@@ -283,15 +298,73 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
             "POST", f"/nodes/{encoded_node}/qemu/{vmid}/status/start", {}
         )
         _wait_proxmox_task(node, start_task)
+        vm_config = _proxmox_request(
+            "GET", f"/nodes/{encoded_node}/qemu/{vmid}/config"
+        ) or {}
+        current = _proxmox_request(
+            "GET", f"/nodes/{encoded_node}/qemu/{vmid}/status/current"
+        ) or {}
+        actual_cores = int(vm_config.get("cores", cores))
+        actual_memory = int(vm_config.get("memory", memory_mb))
+        state = str(current.get("status") or "started")
         results.append({
-            "name": name, "vmid": vmid, "action": action, "status": "started",
+            "name": name, "vmid": vmid, "action": action, "status": state,
+            "vcpu": actual_cores, "memory_mb": actual_memory,
         })
+        vm_native = f"qemu/{vmid}"
+        observed_resources.append({
+            "provider": "proxmox", "resource_type": "virtual_machine",
+            "native_id": vm_native, "name": name, "status": state,
+            "properties": {
+                "vmid": vmid, "node": node, "action": action,
+                "vcpu": actual_cores, "memory_mb": actual_memory,
+            },
+        })
+        observed_relationships.append({
+            "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+            "target_provider": "proxmox", "target_native_id": vm_native,
+            "relation": "hosts",
+        })
+        for key, raw in vm_config.items():
+            if re.fullmatch(r"net\\d+", str(key)) and isinstance(raw, str):
+                options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+                bridge = options.get("bridge")
+                if bridge:
+                    bridge_native = f"network/{node}/{bridge}"
+                    observed_resources.append({
+                        "provider": "proxmox", "resource_type": "network",
+                        "native_id": bridge_native, "name": bridge, "status": "observed",
+                        "properties": {"node": node, "bridge": bridge, "role": "virtual_bridge"},
+                    })
+                    observed_relationships.append({
+                        "source_provider": "proxmox", "source_native_id": vm_native,
+                        "target_provider": "proxmox", "target_native_id": bridge_native,
+                        "relation": "connected_to",
+                    })
+            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\\d+", str(key)) and isinstance(raw, str):
+                volume_ref = raw.split(",", 1)[0]
+                if ":" in volume_ref:
+                    pool, volume_name = volume_ref.split(":", 1)
+                    volume_native = f"volume/{node}/{volume_ref}"
+                    observed_resources.append({
+                        "provider": "proxmox", "resource_type": "storage_volume",
+                        "native_id": volume_native, "name": volume_name, "status": "attached",
+                        "properties": {"node": node, "device": key, "storage_pool": pool},
+                    })
+                    observed_relationships.append({
+                        "source_provider": "proxmox", "source_native_id": vm_native,
+                        "target_provider": "proxmox", "target_native_id": volume_native,
+                        "relation": "uses_storage",
+                    })
 
     return {
         "deployment_id": deployment_id,
         "iac_fingerprint": iac_fingerprint,
+        "worker_id": payload.get("worker_id"),
         "node": node,
         "created_or_reconciled": results,
+        "observed_resources": observed_resources,
+        "observed_relationships": observed_relationships,
         "execution_status": "succeeded",
     }
 
@@ -395,6 +468,60 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
     service_result = _kubernetes_apply(
         f"/api/v1/namespaces/{encoded_namespace}/services/{name}", service
     )
+    api = urllib.parse.urlparse(os.environ["CARPENTER_KUBERNETES_API_URL"])
+    endpoint = (api.hostname or "unknown-cluster") + (f":{api.port}" if api.port else "")
+    deployment_status = deployment_result.get("status", {}) if isinstance(deployment_result, dict) else {}
+    service_spec = service_result.get("spec", {}) if isinstance(service_result, dict) else {}
+    observed_resources = [
+        {
+            "provider": "kubernetes", "resource_type": "cluster",
+            "native_id": f"api/{endpoint}", "name": endpoint, "status": "reachable",
+            "properties": {"cluster_endpoint": endpoint},
+        },
+        {
+            "provider": "kubernetes", "resource_type": "namespace",
+            "native_id": f"namespace/{namespace}", "name": namespace, "status": "observed",
+            "properties": {"namespace": namespace},
+        },
+        {
+            "provider": "kubernetes", "resource_type": "workload",
+            "native_id": f"deployment/{namespace}/{name}", "name": name,
+            "status": "ready" if int(deployment_status.get("readyReplicas", 0) or 0) >= replicas else "applied",
+            "properties": {
+                "namespace": namespace, "image": image, "replicas": replicas,
+                "ready_replicas": int(deployment_status.get("readyReplicas", 0) or 0),
+                "selector": selector,
+                "uid": (deployment_result.get("metadata", {}) or {}).get("uid"),
+                "generation": (deployment_result.get("metadata", {}) or {}).get("generation"),
+                "resource_version": (deployment_result.get("metadata", {}) or {}).get("resourceVersion"),
+            },
+        },
+        {
+            "provider": "kubernetes", "resource_type": "service",
+            "native_id": f"service/{namespace}/{name}", "name": name, "status": "applied",
+            "properties": {
+                "namespace": namespace, "service_type": service_spec.get("type", "ClusterIP"),
+                "port": (service_spec.get("ports") or [{}])[0].get("port", port),
+                "target_port": (service_spec.get("ports") or [{}])[0].get("targetPort", port),
+                "protocol": (service_spec.get("ports") or [{}])[0].get("protocol", "TCP"),
+                "cluster_ip": service_spec.get("clusterIP"),
+            },
+        },
+    ]
+    observed_relationships = [
+        {"source_provider": "kubernetes", "source_native_id": f"api/{endpoint}",
+         "target_provider": "kubernetes", "target_native_id": f"namespace/{namespace}",
+         "relation": "contains"},
+        {"source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+         "target_provider": "kubernetes", "target_native_id": f"deployment/{namespace}/{name}",
+         "relation": "contains"},
+        {"source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+         "target_provider": "kubernetes", "target_native_id": f"service/{namespace}/{name}",
+         "relation": "contains"},
+        {"source_provider": "kubernetes", "source_native_id": f"service/{namespace}/{name}",
+         "target_provider": "kubernetes", "target_native_id": f"deployment/{namespace}/{name}",
+         "relation": "routes_to"},
+    ]
     return {
         "deployment_id": deployment_id,
         "iac_fingerprint": fingerprint,
@@ -402,6 +529,8 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
             {"kind": "Deployment", "name": name, "namespace": namespace},
             {"kind": "Service", "name": name, "namespace": namespace},
         ],
+        "observed_resources": observed_resources,
+        "observed_relationships": observed_relationships,
         "deployment": deployment_result,
         "service": service_result,
         "execution_status": "succeeded",
