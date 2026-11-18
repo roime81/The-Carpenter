@@ -117,6 +117,9 @@ class WorkerCapabilityTests(unittest.TestCase):
                 },
                 "status": {"readyReplicas": 2},
             }]},
+            {"items": []},
+            {"items": []},
+            {"items": []},
             {"items": [{
                 "metadata": {"name": "web"},
                 "spec": {
@@ -162,7 +165,7 @@ class WorkerCapabilityTests(unittest.TestCase):
                      for item in result["observed_relationships"]}
         self.assertIn(("services/kube.example.test:6443/production/web", "deployments/kube.example.test:6443/production/web", "routes_to"), relations)
         self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "nodes/kube.example.test:6443/kube-node-01", "scheduled_on"), relations)
-        self.assertEqual(request.call_count, 4)
+        self.assertEqual(request.call_count, 7)
 
     def test_kubernetes_worker_rejects_tampered_generated_manifests(self):
         request = {
