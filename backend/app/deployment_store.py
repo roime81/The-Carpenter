@@ -102,4 +102,5 @@ def set_status(deployment_id: str, status: str) -> dict[str, Any] | None:
         )
         if cursor.rowcount != 1:
             return None
+    store.record_event(f"deployment.status.{status}", deployment_id, {"status": status})
     return get(deployment_id)
