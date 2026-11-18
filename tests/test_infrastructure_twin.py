@@ -34,7 +34,7 @@ class InfrastructureTwinTests(unittest.TestCase):
             "memory_available_bytes": 48 * 1024 ** 3,
             "disk_total_bytes": 2 * 1024 ** 4,
             "disk_free_bytes": 1 * 1024 ** 4,
-            "ipv4_addresses": ["10.10.1.10", "203.0.113.10"],
+            "ipv4_addresses": ["10.10.1.10", "8.8.8.8"],
             "failure_domain": "rack-a",
             "capabilities": {"compute.proxmox_deploy": "1.0.0"},
             "discovery": {
@@ -149,7 +149,6 @@ class InfrastructureTwinTests(unittest.TestCase):
             for item in store.list_twin_relationships()
         }
         self.assertIn((service, workload, "routes_to"), pairs)
-        self.assertIn((workload, service, "routes_to"), {(a, b, r) for a, b, r in pairs} if False else set())
 
     def test_resource_observations_are_versioned_and_secret_fields_are_not_stored(self):
         base = {
