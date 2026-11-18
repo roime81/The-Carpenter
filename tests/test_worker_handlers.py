@@ -119,7 +119,15 @@ class WorkerCapabilityTests(unittest.TestCase):
             }]},
             {"items": []},
             {"items": []},
-            {"items": []},
+            {"items": [{
+                "metadata": {"name": "web-replicaset", "ownerReferences": [{"kind": "Deployment", "name": "web"}]},
+                "spec": {
+                    "replicas": 2,
+                    "selector": {"matchLabels": {"app": "web"}},
+                    "template": {"spec": {"containers": [{"image": "nginx:stable"}]}},
+                },
+                "status": {"readyReplicas": 2},
+            }]},
             {"items": [{
                 "metadata": {"name": "web"},
                 "spec": {
@@ -131,9 +139,19 @@ class WorkerCapabilityTests(unittest.TestCase):
             {"items": [{
                 "metadata": {"name": "web-data"},
                 "spec": {
-                    "storageClassName": "fast",
+                    "storageClassName": "fast", "volumeName": "pv-web-data",
                     "resources": {"requests": {"storage": "10Gi"}},
                     "accessModes": ["ReadWriteOnce"],
+                },
+                "status": {"phase": "Bound"},
+            }]},
+            {"items": [{
+                "metadata": {"name": "pv-web-data"},
+                "spec": {
+                    "capacity": {"storage": "10Gi"},
+                    "storageClassName": "fast",
+                    "accessModes": ["ReadWriteOnce"],
+                    "persistentVolumeReclaimPolicy": "Retain",
                 },
                 "status": {"phase": "Bound"},
             }]},
@@ -157,15 +175,23 @@ class WorkerCapabilityTests(unittest.TestCase):
         self.assertIn(("cluster", "api/kube.example.test:6443"), resources)
         self.assertIn(("namespace", "namespace/kube.example.test:6443/production"), resources)
         self.assertEqual(resources[("workload", "deployments/kube.example.test:6443/production/web")]["status"], "ready")
+        self.assertIn(("workload", "replicasets/kube.example.test:6443/production/web-replicaset"), resources)
         self.assertIn(("service", "services/kube.example.test:6443/production/web"), resources)
+        self.assertIn(("network", "service-ip/kube.example.test:6443/10.96.0.10"), resources)
         self.assertIn(("storage_volume", "pvc/kube.example.test:6443/production/web-data"), resources)
+        self.assertIn(("storage_volume", "persistentvolume/kube.example.test:6443/pv-web-data"), resources)
         self.assertIn(("workload_instance", "pods/kube.example.test:6443/production/web-pod-1"), resources)
+        self.assertIn(("network_interface", "pod-ip/kube.example.test:6443/10.1.1.10"), resources)
         self.assertIn(("compute_host", "nodes/kube.example.test:6443/kube-node-01"), resources)
         relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
                      for item in result["observed_relationships"]}
         self.assertIn(("services/kube.example.test:6443/production/web", "deployments/kube.example.test:6443/production/web", "routes_to"), relations)
         self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "nodes/kube.example.test:6443/kube-node-01", "scheduled_on"), relations)
-        self.assertEqual(request.call_count, 7)
+        self.assertIn(("replicasets/kube.example.test:6443/production/web-replicaset", "deployments/kube.example.test:6443/production/web", "managed_by"), relations)
+        self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "replicasets/kube.example.test:6443/production/web-replicaset", "instance_of"), relations)
+        self.assertIn(("pvc/kube.example.test:6443/production/web-data", "persistentvolume/kube.example.test:6443/pv-web-data", "bound_to"), relations)
+        self.assertIn(("services/kube.example.test:6443/production/web", "service-ip/kube.example.test:6443/10.96.0.10", "exposes"), relations)
+        self.assertEqual(request.call_count, 8)
 
     def test_kubernetes_worker_rejects_tampered_generated_manifests(self):
         request = {
