@@ -485,12 +485,12 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
         },
         {
             "provider": "kubernetes", "resource_type": "namespace",
-            "native_id": f"namespace/{namespace}", "name": namespace, "status": "observed",
+            "native_id": f"namespace/{endpoint}/{namespace}", "name": namespace, "status": "observed",
             "properties": {"namespace": namespace},
         },
         {
             "provider": "kubernetes", "resource_type": "workload",
-            "native_id": f"deployment/{namespace}/{name}", "name": name,
+            "native_id": f"deployments/{endpoint}/{namespace}/{name}", "name": name,
             "status": "ready" if int(deployment_status.get("readyReplicas", 0) or 0) >= replicas else "applied",
             "properties": {
                 "namespace": namespace, "image": image, "replicas": replicas,
@@ -503,7 +503,7 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
         },
         {
             "provider": "kubernetes", "resource_type": "service",
-            "native_id": f"service/{namespace}/{name}", "name": name, "status": "applied",
+            "native_id": f"services/{endpoint}/{namespace}/{name}", "name": name, "status": "applied",
             "properties": {
                 "namespace": namespace, "service_type": service_spec.get("type", "ClusterIP"),
                 "port": (service_spec.get("ports") or [{}])[0].get("port", port),
