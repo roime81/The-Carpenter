@@ -18,6 +18,10 @@ DISCOVERY_FUNCTIONS = (
     "discovery.hypervisor_probe",
     "discovery.storage_network",
 )
+PROVIDER_DISCOVERY_FUNCTIONS = (
+    "discovery.proxmox_inventory",
+    "discovery.kubernetes_inventory",
+)
 
 
 class CarpenterOrchestrator:
@@ -98,26 +102,42 @@ class CarpenterOrchestrator:
     def _queue_new_node_discovery(
         session_id: str, state: dict[str, Any], agents: list[dict[str, Any]]
     ) -> None:
-        discovered = set(state.get("discovery_nodes", []))
-        new_nodes = [agent for agent in agents if agent["node_id"] not in discovered]
-        for agent in new_nodes:
-            for function_name in DISCOVERY_FUNCTIONS:
+        scheduled = set(state.get("discovery_function_keys", []))
+        discovered_nodes = set(state.get("discovery_nodes", []))
+        for agent in agents:
+            node_id = agent["node_id"]
+            capabilities = agent.get("capabilities", {})
+            functions = list(DISCOVERY_FUNCTIONS)
+            functions.extend(
+                name for name in PROVIDER_DISCOVERY_FUNCTIONS
+                if capabilities.get(name) == "1.0.0"
+            )
+            for function_name in functions:
+                key = f"{node_id}:{function_name}"
+                if key in scheduled:
+                    continue
                 job = store.enqueue_job(
                     function_name,
                     "1.0.0",
-                    {"session_id": session_id, "canvas_stage": "discovery", "worker_id": agent["node_id"]},
+                    {
+                        "session_id": session_id,
+                        "canvas_stage": "discovery",
+                        "worker_id": node_id,
+                    },
                     max_attempts=3,
-                    idempotency_key=f"prompt-discovery-{session_id}-{agent['node_id']}-{function_name}-{uuid.uuid4()}",
-                    target_worker_id=agent["node_id"],
+                    idempotency_key=f"prompt-discovery-{session_id}-{node_id}-{function_name}",
+                    target_worker_id=node_id,
                 )
                 store.record_event("faas.job.enqueued", job["job_id"], {
                     "session_id": session_id,
                     "function_name": function_name,
                     "function_version": "1.0.0",
-                    "worker_id": agent["node_id"],
+                    "worker_id": node_id,
                 })
-            discovered.add(agent["node_id"])
-        state["discovery_nodes"] = sorted(discovered)
+                scheduled.add(key)
+            discovered_nodes.add(node_id)
+        state["discovery_nodes"] = sorted(discovered_nodes)
+        state["discovery_function_keys"] = sorted(scheduled)
 
     def _create_plan(self, session_id: str, state: dict[str, Any], agents: list[dict[str, Any]]) -> str:
         request = {
