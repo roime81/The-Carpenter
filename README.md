@@ -35,19 +35,47 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 ---
 
 
-## Living Infrastructure Canvas (0.5.0)
+## Living Infrastructure Network (0.6.0)
 
-The authenticated web console is now a visual-first, transparent workflow canvas with a porcelain-white theme, soft neutral surfaces and restrained teal/blue status accents. The Carpenter begins as a single launcher node and presents the infrastructure journey as connected, selectable stages: intent, discovery, blueprint, playbook, versioned native functions, deterministic IaC, human approval, distributed provisioning and reconciliation.
+The authenticated web console now uses an organic, interconnected node mesh inspired by the network visual in `docs/assets/8805.jpg`. It starts at the Carpenter launcher and grows from persisted conversation, deployment, FaaS-job and enrolled-worker records. The low-emphasis proximity strands provide the mesh aesthetic; the stronger dependency, resource and worker links represent the actual execution relationships.
 
-- **Graph view:** dependency edges and expandable workflow nodes make the build sequence visible at a glance.
-- **Status language:** dormant, in progress, complete and attention states use distinct, accessible color treatments.
-- **Node inspector:** select any node to inspect its purpose, role, dependency and execution boundary.
-- **Execution journal:** recent conversation entries are visible alongside the graph.
-- **Prompt dock:** the natural-language composer remains available while the canvas is in view.
-- **White visual system:** a light, low-glare interface keeps the graph, dependency paths and execution status legible without dark panels or neon effects.
-- **Honest state representation:** the current UI derives visible state from the saved conversation response. It does not claim to be a live event stream; real-time worker telemetry and event-driven graph updates remain a follow-on integration.
+### Live graph model
 
-The Blueprint and Playbook nodes are visual workflow concepts in this release. They do not imply that separate workbook or playbook files are persisted. The existing saved deployment plan, IaC resource graph, approval and distributed FaaS job lifecycle remain the authoritative execution records.
+- **Stage nodes:** intent, discovery, infrastructure workbook, execution playbook, native functions, IaC, approval, provisioning and verification.
+- **Job nodes:** one stable node per persisted FaaS job, with its function name/version, retry attempt, queue/claim/result status, timestamps and event history.
+- **Worker nodes:** one stable node per enrolled worker participating in the session's discovery or deployment jobs. The node is updated as jobs are claimed, retried, succeeded or failed.
+- **Resource nodes:** nodes projected from the saved IaC resource graph. Their status follows the linked provider job; a planned resource is not shown as deployed.
+- **Node inspector:** selecting any node shows its current status, identifiers, timestamps, worker assignment and relevant event log.
+- **Event stream:** the browser receives authenticated Server-Sent Event snapshots and updates the graph without a page refresh. The server rebuilds each snapshot from the durable SQLite job, deployment and operation-event records on a 1.5-second cadence. No separate message broker is required for this release.
+
+### Worker event lifecycle
+
+The worker claim, completion and failure endpoints write explicit `faas.job.claimed`, `faas.job.succeeded` and `faas.job.failed` events. Queue/dispatch and deployment status transitions are recorded too. The canvas derives its state from those persisted records, rather than regex-matching assistant prose or animating a simulated deployment.
+
+The live endpoints are scoped to the signed-in conversation:
+
+- `GET /api/v1/canvas/snapshot` — current graph projection.
+- `GET /api/v1/canvas/stream` — Server-Sent Event stream of changed graph snapshots.
+- `GET /api/v1/canvas/artifacts/blueprint` — the saved Infrastructure Workbook preview.
+- `GET /api/v1/canvas/artifacts/playbook` — the Execution Playbook preview with live step statuses.
+
+### Generated work products
+
+The **Infrastructure Workbook** and **Execution Playbook** are generated when a deployment plan is created and persisted inside that deployment's saved plan record. The workbook captures the user outcome, target environment, capacity, actual placement, resource inventory, IaC fingerprint, readiness and guardrails. The playbook captures discovery, design, IaC validation, human approval, provider dispatch and reconciliation; its preview recalculates step state from the current deployment and linked worker jobs.
+
+These previews are persisted with the deployment plan in SQLite; they are not separate files written to a filesystem or object store in this release. The IaC bundle and resource graph remain the execution artifacts used by the existing deployment engine.
+
+### Status language
+
+| Canvas status | Meaning |
+|---|---|
+| Waiting | A stage or resource exists but is not yet eligible to run or has not been approved |
+| Queued | A real FaaS job is waiting for an eligible worker |
+| Running | A worker has claimed the job and holds its lease |
+| Succeeded | The job or deployment has returned a successful recorded result |
+| Failed | The job reached its terminal failure state or the deployment reconciliation failed |
+
+The stream is a lightweight polling-backed SSE projection, not a broker-backed push bus. It reflects durable worker state at the polling interval; the UI does not claim sub-second delivery or expose raw worker payloads. The graph layout is calculated in the browser from stable node IDs and the persisted relationships.
 
 ## Principles and architecture
 
