@@ -9,8 +9,8 @@ from app import store
 
 ALLOWED_TYPES = {
     "control_plane", "compute_host", "hypervisor_node", "hypervisor",
-    "virtual_machine", "cluster", "namespace", "workload", "service",
-    "network", "network_interface", "storage_volume", "container_runtime",
+    "virtual_machine", "cluster", "namespace", "workload", "workload_instance", "service",
+    "network", "network_interface", "storage_volume", "storage_pool", "container_runtime",
     "endpoint",
 }
 SAFE_PROPERTY_KEYS = {
@@ -25,6 +25,8 @@ SAFE_PROPERTY_KEYS = {
     "memory_bytes", "disk_bytes", "native_id", "resource_version", "uid",
     "generation", "namespace", "image", "replicas", "ready_replicas", "selector",
     "service_type", "port", "target_port", "protocol", "cluster_endpoint", "cluster_ip", "api_server",
+    "phase", "node_name", "pod_ip", "restart_count", "storage_class", "storage_request",
+    "access_modes", "cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime",
     "node", "provider", "name", "role", "version", "observed_at",
 }
 
