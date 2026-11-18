@@ -237,6 +237,36 @@
     row.className="node-log-row";time.textContent=fmtTime(item.at);message.textContent=item.message||"Worker event";
     row.append(time,message);inspectorLogs.appendChild(row);
   }
+  const twinHistoryCache = new Map();
+  const twinHistoryLoading = new Set();
+  async function loadTwinHistory(node) {
+    const cached=twinHistoryCache.get(node.id);
+    if(cached&&cached.version===node.version){cached.logs.forEach(addLog);return;}
+    if(twinHistoryLoading.has(node.id))return;
+    twinHistoryLoading.add(node.id);
+    const placeholder=document.createElement("div");placeholder.className="subtle-empty";placeholder.textContent="Loading resource observation history…";inspectorLogs.appendChild(placeholder);
+    try {
+      const response=await fetch("/api/v1/twin/resources/"+encodeURIComponent(node.id)+"/history",{credentials:"same-origin",headers:{"Accept":"application/json"}});
+      if(!response.ok)throw new Error("Observation history is unavailable.");
+      const payload=await response.json();
+      const logs=(payload.observations||[]).map(item=>({
+        at:item.observed_at,
+        event_type:item.change_type,
+        message:item.change_type==="created"?"First observed · "+item.status:"State changed · "+(item.previous_status||"unknown")+" → "+item.status
+      }));
+      twinHistoryCache.set(node.id,{version:node.version,logs});
+      if(selectedId===node.id){
+        inspectorLogs.replaceChildren();
+        if(logs.length)logs.slice(-20).forEach(addLog);
+        else {const empty=document.createElement("div");empty.className="subtle-empty";empty.textContent="No state changes have been recorded for this resource yet.";inspectorLogs.appendChild(empty);}
+      }
+    } catch(error) {
+      if(selectedId===node.id){
+        inspectorLogs.replaceChildren();
+        const empty=document.createElement("div");empty.className="subtle-empty";empty.textContent=error.message||"Observation history could not be loaded.";inspectorLogs.appendChild(empty);
+      }
+    } finally { twinHistoryLoading.delete(node.id); }
+  }
   function renderInspector() {
     const node=(snapshot.nodes||[]).find(item=>item.id===selectedId);
     if(!node)return;
@@ -266,7 +296,8 @@
       });
     }
     timestamps.replaceChildren();
-    [["CREATED",node.created_at],["STARTED",node.started_at],["UPDATED",node.updated_at],["COMPLETED",node.completed_at]].forEach(([label,value])=>{
+    const timestampFields=node.kind==="topology"?[["FIRST OBSERVED",node.created_at],["LAST OBSERVED",node.updated_at]]:[["CREATED",node.created_at],["STARTED",node.started_at],["UPDATED",node.updated_at],["COMPLETED",node.completed_at]];
+    timestampFields.forEach(([label,value])=>{
       if(!value)return;const row=document.createElement("div"),k=document.createElement("span"),v=document.createElement("time");
       k.textContent=label;v.textContent=fmtTime(value);row.append(k,v);timestamps.appendChild(row);
     });
@@ -275,9 +306,10 @@
     (node.logs||[]).slice(-12).forEach(addLog);
     if(!(node.logs||[]).length&&!node.error){
       const empty=document.createElement("div");empty.className="subtle-empty";
-      empty.textContent=node.kind==="job"?"No worker events recorded yet.":"Select a job node to inspect its event history.";
+      empty.textContent=node.kind==="job"?"No worker events recorded yet.":node.kind==="topology"?"Loading resource observation history…":"Select a job or resource node to inspect its event history.";
       inspectorLogs.appendChild(empty);
     }
+    if(node.kind==="topology")loadTwinHistory(node);
   }
   function renderEvents() {
     const events=(snapshot.events||[]).slice(-14).reverse();
