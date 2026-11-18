@@ -147,15 +147,15 @@ class WorkerCapabilityTests(unittest.TestCase):
         resources = {(item["resource_type"], item["native_id"]): item for item in result["observed_resources"]}
         self.assertIn(("cluster", "api/kube.example.test:6443"), resources)
         self.assertIn(("namespace", "namespace/production"), resources)
-        self.assertEqual(resources[("workload", "deployments/production/web")]["status"], "ready")
-        self.assertIn(("service", "services/production/web"), resources)
-        self.assertIn(("storage_volume", "pvc/production/web-data"), resources)
-        self.assertIn(("workload_instance", "pods/production/web-pod-1"), resources)
-        self.assertIn(("compute_host", "nodes/kube-node-01"), resources)
+        self.assertEqual(resources[("workload", "deployments/kube.example.test:6443/production/web")]["status"], "ready")
+        self.assertIn(("service", "services/kube.example.test:6443/production/web"), resources)
+        self.assertIn(("storage_volume", "pvc/kube.example.test:6443/production/web-data"), resources)
+        self.assertIn(("workload_instance", "pods/kube.example.test:6443/production/web-pod-1"), resources)
+        self.assertIn(("compute_host", "nodes/kube.example.test:6443/kube-node-01"), resources)
         relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
                      for item in result["observed_relationships"]}
-        self.assertIn(("services/production/web", "deployments/production/web", "routes_to"), relations)
-        self.assertIn(("pods/production/web-pod-1", "nodes/kube-node-01", "scheduled_on"), relations)
+        self.assertIn(("services/kube.example.test:6443/production/web", "deployments/kube.example.test:6443/production/web", "routes_to"), relations)
+        self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "nodes/kube.example.test:6443/kube-node-01", "scheduled_on"), relations)
         self.assertEqual(request.call_count, 4)
 
     def test_kubernetes_worker_rejects_tampered_generated_manifests(self):
