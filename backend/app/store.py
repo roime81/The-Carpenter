@@ -578,6 +578,29 @@ def list_deployment_job_links(deployment_id: str) -> list[dict[str, Any]]:
 
 # Infrastructure Digital Twin — observed resource inventory
 
+def _safe_twin_property_value(value: Any, depth: int = 0) -> Any:
+    """Defense-in-depth filter for all properties entering the durable twin store."""
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:1000]
+    if isinstance(value, list):
+        return [_safe_twin_property_value(item, depth + 1) for item in value[:100]]
+    if isinstance(value, dict):
+        result = {}
+        sensitive = ("token", "password", "secret", "credential", "private_key", "authorization")
+        for key, item in list(value.items())[:100]:
+            name = str(key)
+            lowered = name.casefold()
+            if any(marker in lowered for marker in sensitive):
+                continue
+            result[name[:120]] = _safe_twin_property_value(item, depth + 1)
+        return result
+    return str(value)[:500]
+
+
 def upsert_twin_resource(resource: dict[str, Any]) -> dict[str, Any]:
     required = ("resource_id", "resource_type", "provider", "native_id", "name", "status", "source")
     if any(not str(resource.get(key, "")).strip() for key in required):
@@ -586,6 +609,7 @@ def upsert_twin_resource(resource: dict[str, Any]) -> dict[str, Any]:
     properties = resource.get("properties") or {}
     if not isinstance(properties, dict):
         raise ValueError("Digital-twin resource properties must be a JSON object.")
+    properties = _safe_twin_property_value(properties)
     properties_json = json.dumps(properties, sort_keys=True, separators=(",", ":"), default=str)
     change = None
     previous_status = None
