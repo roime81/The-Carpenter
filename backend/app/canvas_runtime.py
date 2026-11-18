@@ -9,7 +9,7 @@ from app.deployment_store import reconcile_status
 
 def _clean(value: Any, limit: int = 700) -> str:
     text = str(value or "")
-    text = re.sub(r"(?i)(token|password|secret|api[_-]?key)(\\s*[:=]\\s*)[^\\s,;]+", r"\\1\\2[redacted]", text)
+    text = re.sub(r"(?i)(token|password|secret|api[_-]?key)(\s*[:=]\s*)[^\s,;]+", r"\1\2[redacted]", text)
     return text[:limit]
 
 
@@ -71,7 +71,7 @@ def _markdown_blueprint(plan: dict[str, Any], prompt: str) -> str:
         "- Provider mutations require explicit human approval and are dispatched only to eligible enrolled workers.",
         "- The deployment status is reconciled from the actual linked worker jobs.",
     ])
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def _playbook_steps(plan: dict[str, Any], deployment: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -134,9 +134,9 @@ def get_canvas_artifact(session_id: str, kind: str) -> dict[str, Any] | None:
     result = dict(artifact)
     if kind == "playbook":
         result["steps"] = _playbook_steps(record.get("plan", {}), record)
-        result["content"] = "\\n".join(
+        result["content"] = "\n".join(
             [f"# {result.get('title', 'Execution Playbook')}", "", f"> Deployment: {deployment_id}", ""] +
-            [f"## {index + 1}. {step['title']} — **{step['status'].upper()}**\\n{step['detail']}" for index, step in enumerate(result["steps"])]
+            [f"## {index + 1}. {step['title']} — **{step['status'].upper()}**\n{step['detail']}" for index, step in enumerate(result["steps"])]
         )
     return result
 
