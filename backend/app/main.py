@@ -816,6 +816,70 @@ def canvas_artifact(kind: str, request: Request) -> dict[str, Any]:
 
 
 
+@app.post("/api/v1/twin/refresh")
+def refresh_digital_twin(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    if identity.get("role") not in ("operator", "admin"):
+        raise HTTPException(status_code=403, detail="Topology refresh requires operator or admin access.")
+    if not verify_csrf(identity, request.headers.get("X-CSRF-Token", "")):
+        raise HTTPException(status_code=403, detail="The CSRF token is invalid.")
+
+    session_id = _conversation_id(identity)
+    refresh_id = str(uuid.uuid4())
+    functions = (
+        "discovery.host_inventory",
+        "discovery.hypervisor_probe",
+        "discovery.storage_network",
+        "discovery.proxmox_inventory",
+        "discovery.kubernetes_inventory",
+    )
+    jobs = []
+    for worker in store.list_agents(online_only=True):
+        capabilities = worker.get("capabilities", {})
+        for function_name in functions:
+            if capabilities.get(function_name) != "1.0.0":
+                continue
+            job = store.enqueue_job(
+                function_name, "1.0.0",
+                {
+                    "session_id": session_id,
+                    "canvas_stage": "discovery",
+                    "worker_id": worker["node_id"],
+                    "refresh_id": refresh_id,
+                },
+                max_attempts=2, priority=20,
+                idempotency_key=f"twin-refresh:{refresh_id}:{worker['node_id']}:{function_name}",
+                target_worker_id=worker["node_id"],
+            )
+            jobs.append(job)
+            store.record_event("faas.job.enqueued", job["job_id"], {
+                "session_id": session_id,
+                "refresh_id": refresh_id,
+                "worker_id": worker["node_id"],
+                "function_name": function_name,
+                "function_version": "1.0.0",
+                "purpose": "digital_twin_refresh",
+            })
+    store.record_event("twin.refresh.queued", refresh_id, {
+        "session_id": session_id,
+        "worker_count": len({job.get("target_worker_id") for job in jobs}),
+        "job_ids": [job["job_id"] for job in jobs],
+    })
+    return {
+        "refresh_id": refresh_id,
+        "status": "queued" if jobs else "no_eligible_workers",
+        "worker_count": len({job.get("target_worker_id") for job in jobs}),
+        "job_count": len(jobs),
+        "jobs": [
+            {"job_id": job["job_id"], "function_name": job["function_name"],
+             "target_worker_id": job.get("target_worker_id"), "status": job["status"]}
+            for job in jobs
+        ],
+    }
+
+
 @app.get("/api/v1/twin/snapshot")
 def digital_twin_snapshot(request: Request) -> dict[str, Any]:
     identity = _web_identity(request)
