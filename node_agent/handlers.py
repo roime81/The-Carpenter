@@ -328,7 +328,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
             },
         })
         observed_relationships.append({
-            "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+            "source_provider": "proxmox", "source_native_id": f"nodes/{endpoint}/{node}",
             "target_provider": "proxmox", "target_native_id": vm_native,
             "relation": "hosts",
         })
@@ -639,14 +639,14 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                          if item.get(key) is not None
                      })
             observed_relationships.append({
-                "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+                "source_provider": "proxmox", "source_native_id": f"nodes/{endpoint}/{node}",
                 "target_provider": "proxmox", "target_native_id": native,
                 "relation": "provides_storage",
             })
 
     for node in sorted(nodes):
-        if not any(item.get("native_id") == f"nodes/{node}" for item in observed_resources):
-            resource("proxmox", "hypervisor_node", f"nodes/{node}", node, "observed", {"node": node})
+        if not any(item.get("native_id") == f"nodes/{endpoint}/{node}" for item in observed_resources):
+            resource("proxmox", "hypervisor_node", f"nodes/{endpoint}/{node}", node, "observed", {"node": node})
 
     # Read per-VM configuration to expose virtual bridges and storage attachments.
     for node, vmid, _ in vm_configs:
