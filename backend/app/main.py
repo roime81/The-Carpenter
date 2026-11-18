@@ -797,10 +797,10 @@ async def canvas_stream(request: Request) -> StreamingResponse:
             payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), default=str)
             digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
             if digest != previous_digest:
-                yield f"id: {digest}\\nevent: snapshot\\ndata: {payload}\\n\\n"
+                yield f"id: {digest}\nevent: snapshot\ndata: {payload}\n\n"
                 previous_digest = digest
             else:
-                yield ": heartbeat\\n\\n"
+                yield ": heartbeat\n\n"
             await asyncio.sleep(1.5)
 
     return StreamingResponse(
