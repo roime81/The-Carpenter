@@ -172,6 +172,26 @@ class LiveCanvasRuntimeTests(unittest.TestCase):
                       result["artifacts"])
         self.assertNotIn("private-event", {event["event_id"] for event in result["events"]})
 
+    def test_partial_inventory_is_not_presented_as_complete_discovery(self):
+        self.jobs[0]["result"] = {
+            "inventory_complete": False,
+            "warnings": ["persistent volume inventory: HTTPError"],
+        }
+        patches = self._patched_store()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch.object(canvas_runtime.infrastructure_twin, "list_twin_snapshot", return_value={
+                 "resources": [], "relationships": [], "resource_count": 0,
+                 "relationship_count": 0, "updated_at": "",
+             }), patch.object(canvas_runtime.store, "list_twin_observations", return_value=[]):
+            result = canvas_runtime.build_canvas_snapshot(self.session_id)
+
+        nodes = {node["id"]: node for node in result["nodes"]}
+        self.assertEqual(nodes["stage:discovery"]["status"], "partial")
+        self.assertEqual(nodes["job:discovery-job-1"]["status"], "partial")
+        self.assertEqual(nodes["job:discovery-job-1"]["inventory_warning_count"], 1)
+        self.assertTrue(any("Inventory is partial" in item["message"]
+                            for item in nodes["job:discovery-job-1"]["logs"]))
+
     def test_playbook_preview_reflects_live_execution_status(self):
         patches = self._patched_store()
         with patches[1], patches[5]:
