@@ -518,13 +518,13 @@ def kubernetes_deploy(payload: dict[str, Any]) -> dict[str, Any]:
          "target_provider": "kubernetes", "target_native_id": f"namespace/{endpoint}/{namespace}",
          "relation": "contains"},
         {"source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
-         "target_provider": "kubernetes", "target_native_id": f"deployment/{namespace}/{name}",
+         "target_provider": "kubernetes", "target_native_id": f"deployments/{endpoint}/{namespace}/{name}",
          "relation": "contains"},
         {"source_provider": "kubernetes", "source_native_id": f"namespace/{endpoint}/{namespace}",
-         "target_provider": "kubernetes", "target_native_id": f"service/{namespace}/{name}",
+         "target_provider": "kubernetes", "target_native_id": f"services/{endpoint}/{namespace}/{name}",
          "relation": "contains"},
-        {"source_provider": "kubernetes", "source_native_id": f"service/{namespace}/{name}",
-         "target_provider": "kubernetes", "target_native_id": f"deployment/{namespace}/{name}",
+        {"source_provider": "kubernetes", "source_native_id": f"services/{endpoint}/{namespace}/{name}",
+         "target_provider": "kubernetes", "target_native_id": f"deployments/{endpoint}/{namespace}/{name}",
          "relation": "routes_to"},
     ]
     return {
