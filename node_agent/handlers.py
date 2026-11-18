@@ -755,6 +755,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         ("deployments", f"/apis/apps/v1/namespaces/{encoded_namespace}/deployments"),
         ("statefulsets", f"/apis/apps/v1/namespaces/{encoded_namespace}/statefulsets"),
         ("daemonsets", f"/apis/apps/v1/namespaces/{encoded_namespace}/daemonsets"),
+        ("replicasets", f"/apis/apps/v1/namespaces/{encoded_namespace}/replicasets"),
     ):
         for item in list_items(api_path)[:300]:
             metadata = item.get("metadata") or {}
@@ -788,7 +789,29 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                 "target_provider": "kubernetes", "target_native_id": native,
                 "relation": "contains",
             })
-            workloads.append({"native_id": native, "selector": selector})
+            owner_references = metadata.get("ownerReferences") or []
+            workloads.append({
+                "native_id": native, "selector": selector,
+                "owner_references": owner_references,
+            })
+            for owner in owner_references:
+                owner_name = str(owner.get("name") or "")
+                owner_kind = str(owner.get("kind") or "").casefold()
+                if not owner_name:
+                    continue
+                parent_plural = {
+                    "deployment": "deployments",
+                    "statefulset": "statefulsets",
+                    "daemonset": "daemonsets",
+                }.get(owner_kind)
+                if parent_plural:
+                    observed_relationships.append({
+                        "source_provider": "kubernetes",
+                        "source_native_id": native,
+                        "target_provider": "kubernetes",
+                        "target_native_id": f"{parent_plural}/{endpoint}/{namespace}/{owner_name}",
+                        "relation": "managed_by",
+                    })
 
     services = list_items(f"/api/v1/namespaces/{encoded_namespace}/services")
     for item in services[:300]:
@@ -815,6 +838,26 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             "target_provider": "kubernetes", "target_native_id": native,
             "relation": "contains",
         })
+        cluster_ip = str(spec.get("clusterIP") or "")
+        if cluster_ip and cluster_ip.casefold() != "none":
+            try:
+                address = ipaddress.ip_address(cluster_ip)
+            except ValueError:
+                address = None
+            if address is not None:
+                network_native = f"service-ip/{endpoint}/{cluster_ip}"
+                observed_resources.append({
+                    "provider": "kubernetes", "resource_type": "network",
+                    "native_id": network_native, "name": cluster_ip, "status": "observed",
+                    "properties": {"address": cluster_ip, "role": "service_cluster_ip"},
+                })
+                observed_relationships.append({
+                    "source_provider": "kubernetes",
+                    "source_native_id": native,
+                    "target_provider": "kubernetes",
+                    "target_native_id": network_native,
+                    "relation": "exposes",
+                })
         selector = spec.get("selector") or {}
         for workload in workloads:
             labels = workload.get("selector") or {}
@@ -825,6 +868,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                     "relation": "routes_to",
                 })
 
+    claims: list[tuple[str, str]] = []
     for item in list_items(f"/api/v1/namespaces/{encoded_namespace}/persistentvolumeclaims")[:300]:
         metadata = item.get("metadata") or {}
         spec = item.get("spec") or {}
@@ -849,6 +893,37 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             "target_provider": "kubernetes", "target_native_id": native,
             "relation": "contains",
         })
+        volume_name = str(spec.get("volumeName") or "")
+        if volume_name:
+            claims.append((native, volume_name))
+
+    if claims:
+        for item in list_items("/api/v1/persistentvolumes")[:500]:
+            metadata = item.get("metadata") or {}
+            spec = item.get("spec") or {}
+            status = item.get("status") or {}
+            name = str(metadata.get("name") or "")
+            if not name or not any(name == target for _, target in claims):
+                continue
+            native = f"persistentvolume/{endpoint}/{name}"
+            observed_resources.append({
+                "provider": "kubernetes", "resource_type": "storage_volume",
+                "native_id": native, "name": name,
+                "status": str(status.get("phase") or "observed").casefold(),
+                "properties": {
+                    "capacity": (spec.get("capacity") or {}).get("storage"),
+                    "storage_class": spec.get("storageClassName"),
+                    "access_modes": spec.get("accessModes") or [],
+                    "reclaim_policy": spec.get("persistentVolumeReclaimPolicy"),
+                },
+            })
+            for claim_id, target in claims:
+                if target == name:
+                    observed_relationships.append({
+                        "source_provider": "kubernetes", "source_native_id": claim_id,
+                        "target_provider": "kubernetes", "target_native_id": native,
+                        "relation": "bound_to",
+                    })
 
     for item in list_items(f"/api/v1/namespaces/{encoded_namespace}/pods")[:500]:
         metadata = item.get("metadata") or {}
