@@ -146,7 +146,7 @@ class WorkerCapabilityTests(unittest.TestCase):
 
         resources = {(item["resource_type"], item["native_id"]): item for item in result["observed_resources"]}
         self.assertIn(("cluster", "api/kube.example.test:6443"), resources)
-        self.assertIn(("namespace", "namespace/production"), resources)
+        self.assertIn(("namespace", "namespace/kube.example.test:6443/production"), resources)
         self.assertEqual(resources[("workload", "deployments/kube.example.test:6443/production/web")]["status"], "ready")
         self.assertIn(("service", "services/kube.example.test:6443/production/web"), resources)
         self.assertIn(("storage_volume", "pvc/kube.example.test:6443/production/web-data"), resources)
