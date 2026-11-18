@@ -14,7 +14,8 @@ All notable changes to The Carpenter are documented here.
 - Imported successful provider operation results after FaaS completion, so resources created or changed by The Carpenter appear in the Digital Twin as observed objects.
 - Added authenticated `/api/v1/twin/snapshot`, `/api/v1/twin/refresh` and `/api/v1/twin/resources/{resource_id}/history` endpoints.
 - Added operator/admin **Refresh topology** control; refresh queues read-only inventory jobs only on eligible online workers.
-- Added tests for resource identity/version/history, Proxmox resource relationships and Kubernetes workload/network/storage topology.
+- Added a distinct Partial discovery state when provider inventory has read warnings; warning counts are visible in the job inspector instead of presenting incomplete scans as complete.
+- Added tests for resource identity/version/history, Proxmox resource relationships, Kubernetes workload/network/storage topology and partial-inventory status.
 - Documented that the twin is installation-wide in this release, that Kubernetes inventory is namespace/RBAC-scoped, and that AWS/Azure/GCP inventories, deletion inference and automated drift remediation are follow-on work.
 
 ## 0.6.0 — 2026-11-18
