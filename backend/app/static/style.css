@@ -218,3 +218,6 @@ body.dialog-open{overflow:hidden}
 
 .graph-node.resource-workload_instance .node-core{fill:#4b91b7;stroke:#2f6e93}
 .graph-node.resource-storage_pool .node-core{fill:#aa9a7b;stroke:#897653}
+
+.graph-node.status-partial .node-core{fill:#d8b36c;stroke:#aa7b2e;opacity:1}
+.status-pill.partial{color:#93631f;border-color:rgba(168,107,23,.34);background:rgba(168,107,23,.07)}
