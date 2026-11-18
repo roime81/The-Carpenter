@@ -49,7 +49,7 @@
   const statusText = {
     idle:"DORMANT", ready:"READY", online:"ONLINE", observed:"OBSERVED", waiting:"WAITING", queued:"QUEUED",
     running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", reachable:"REACHABLE", stopped:"STOPPED", bound:"BOUND", pending:"PENDING", active:"ACTIVE",
-    applied:"APPLIED", mounted:"MOUNTED", available:"AVAILABLE", up:"UP", down:"DOWN", offline:"OFFLINE", failed:"FAILED"
+    applied:"APPLIED", mounted:"MOUNTED", available:"AVAILABLE", up:"UP", down:"DOWN", offline:"OFFLINE", failed:"FAILED", partial:"PARTIAL"
   };
   const statusClass = value => ({
     idle:"idle", down:"idle", offline:"idle", ready:"ready", online:"ready", waiting:"waiting", observed:"waiting", queued:"queued",
@@ -233,9 +233,9 @@
       g.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();selectNode(node.id);}});
     });
     const count=nodes.length,jobs=nodes.filter(node=>node.kind==="job").length,workers=nodes.filter(node=>node.kind==="worker").length;
-    const done=nodes.filter(node=>node.status==="succeeded").length,running=nodes.filter(node=>node.status==="running").length,failed=nodes.filter(node=>node.status==="failed").length;
+    const done=nodes.filter(node=>node.status==="succeeded").length,running=nodes.filter(node=>node.status==="running").length,failed=nodes.filter(node=>node.status==="failed").length,partial=nodes.filter(node=>node.status==="partial").length;
     counter.textContent=count+" NODES";
-    summary.textContent=`${count} ${graphMode==="topology"?"infrastructure":graphMode==="workflow"?"execution":"connected"} nodes · ${jobs} jobs · ${workers} workers · ${running} running · ${done} succeeded · ${failed} failed`;
+    summary.textContent=`${count} ${graphMode==="topology"?"infrastructure":graphMode==="workflow"?"execution":"connected"} nodes · ${jobs} jobs · ${workers} workers · ${running} running · ${done} succeeded · ${partial} partial · ${failed} failed`;
     hint.classList.toggle("hidden",count>1 || (snapshot.nodes||[]).length>1);
     if(!fitted) fitNetwork();
     renderInspector();
