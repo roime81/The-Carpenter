@@ -105,7 +105,7 @@ A worker advertises `discovery.kubernetes_inventory@1.0.0` when its API URL and 
 
 Relationships include namespace containment, Service-to-workload routing, ReplicaSet/controller ownership, Pod-to-ReplicaSet ownership, Pod scheduling and PVC-to-PV binding.
 
-This inventory intentionally follows the configured namespace and RBAC boundary. It does not assume cluster-admin permission. If a collection is forbidden or unavailable, the discovery result records a warning and is marked incomplete; the control plane does not infer that absent objects were deleted.
+This inventory intentionally follows the configured namespace and RBAC boundary. It does not assume cluster-admin permission. If a collection is forbidden or unavailable, the discovery result records a warning and is marked incomplete. The graph marks that discovery job and stage as **Partial**, and shows the warning count in the inspector; it does not label a partial scan as fully complete. The control plane does not infer that absent objects were deleted.
 
 ### 5. Successful provider operations
 
