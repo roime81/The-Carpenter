@@ -35,47 +35,64 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 ---
 
 
-## Living Infrastructure Network (0.6.0)
+## Infrastructure Digital Twin (0.7.0)
 
-The authenticated web console now uses an organic, interconnected node mesh inspired by the network visual in `docs/assets/8805.jpg`. It starts at the Carpenter launcher and grows from persisted conversation, deployment, FaaS-job and enrolled-worker records. The low-emphasis proximity strands provide the mesh aesthetic; the stronger dependency, resource and worker links represent the actual execution relationships.
+The white living canvas is now an **Infrastructure Digital Twin** as well as an execution graph. Its organic node mesh is inspired by `docs/assets/8805.jpg`: varied node sizes, fine blue topology strands and stronger edges for actual ownership, hosting, storage, network and service relationships.
 
-### Live graph model
+The canvas combines two related but distinct views in one network:
 
-- **Stage nodes:** intent, discovery, infrastructure workbook, execution playbook, native functions, IaC, approval, provisioning and verification.
-- **Job nodes:** one stable node per persisted FaaS job, with its function name/version, retry attempt, queue/claim/result status, timestamps and event history.
-- **Worker nodes:** one stable node per enrolled worker participating in the session's discovery or deployment jobs. The node is updated as jobs are claimed, retried, succeeded or failed.
-- **Resource nodes:** nodes projected from the saved IaC resource graph. Their status follows the linked provider job; a planned resource is not shown as deployed.
-- **Node inspector:** selecting any node shows its current status, identifiers, timestamps, worker assignment and relevant event log.
-- **Event stream:** the browser receives authenticated Server-Sent Event snapshots and updates the graph without a page refresh. The server rebuilds each snapshot from the durable SQLite job, deployment and operation-event records on a 1.5-second cadence. No separate message broker is required for this release.
+- **Execution graph:** intent, discovery, workbook, playbook, IaC, approval, FaaS jobs and worker activity for the signed-in conversation.
+- **Observed infrastructure topology:** shared installation-level cloud resources discovered from enrolled workers and provider APIs. It is not generated from planned IaC and does not imply that a planned resource already exists.
 
-### Worker event lifecycle
+### Digital Twin resource model
 
-The worker claim, completion and failure endpoints write explicit `faas.job.claimed`, `faas.job.succeeded` and `faas.job.failed` events. Queue/dispatch and deployment status transitions are recorded too. The canvas derives its state from those persisted records, rather than regex-matching assistant prose or animating a simulated deployment.
+Every observed resource has a deterministic provider/native identity and a typed record:
 
-The live endpoints are scoped to the signed-in conversation:
+- **Compute:** Carpenter-managed hosts, Proxmox nodes, VMs/LXC guests and Kubernetes nodes observed through scheduled pods.
+- **Virtualisation:** Proxmox/KVM/libvirt capability and hypervisor relationships.
+- **Kubernetes:** cluster endpoints, namespaces, Deployments, StatefulSets, DaemonSets, ReplicaSets, Pods, Services, pod IP interfaces, PVCs and visible PVs.
+- **Network:** private host subnets/interfaces, Proxmox bridges, Kubernetes service ClusterIPs and pod IP interfaces.
+- **Storage:** host-mounted filesystems, Proxmox storage pools and attached VM volumes, Kubernetes PVCs and visible bound PVs.
+- **Services and dependencies:** service-to-workload routing, pod-to-ReplicaSet ownership, ReplicaSet-to-controller ownership, pod scheduling, VM hosting, VM network attachments and storage bindings.
 
-- `GET /api/v1/canvas/snapshot` — current graph projection.
-- `GET /api/v1/canvas/stream` — Server-Sent Event stream of changed graph snapshots.
-- `GET /api/v1/canvas/artifacts/blueprint` — the saved Infrastructure Workbook preview.
-- `GET /api/v1/canvas/artifacts/playbook` — the Execution Playbook preview with live step statuses.
+Provider identities are scoped by the configured API endpoint so that similarly named VM IDs, Kubernetes namespaces or services on different clusters do not collapse into one object. The same resource keeps its identity as its observed properties and status change.
 
-### Generated work products
+### How the twin is populated
 
-The **Infrastructure Workbook** and **Execution Playbook** are generated when a deployment plan is created and persisted inside that deployment's saved plan record. The workbook captures the user outcome, target environment, capacity, actual placement, resource inventory, IaC fingerprint, readiness and guardrails. The playbook captures discovery, design, IaC validation, human approval, provider dispatch and reconciliation; its preview recalculates step state from the current deployment and linked worker jobs.
+1. **Worker heartbeat:** creates or updates the actual enrolled host, CPU/memory/disk facts, private addresses and last-seen status.
+2. **Local read-only discovery:** records detected hypervisor/runtime capabilities, mounted filesystems, network interfaces and private subnet relationships.
+3. **Provider inventory discovery:** workers with Proxmox credentials can read the Proxmox cluster resource list and selected VM configurations; workers with Kubernetes credentials can read namespaced workload/service/pod/PVC data visible to their service account and associated PVs where permission is granted.
+4. **Successful provisioning:** after a provider function returns successfully, the control plane imports the provider's observed result and relationship set. A VM, service or volume appears as an observed object only after the worker reports it.
+5. **Observation history:** each resource creation or material change increments its version and stores a timestamped observation snapshot. The node inspector loads that history on demand.
 
-These previews are persisted with the deployment plan in SQLite; they are not separate files written to a filesystem or object store in this release. The IaC bundle and resource graph remain the execution artifacts used by the existing deployment engine.
+### Refresh and API
 
-### Status language
+Operators and admins can select **Refresh topology** in the canvas. It queues read-only inventory work on online workers that advertise the matching provider capability. The button reports that work was queued; the graph changes only when workers return observations.
 
-| Canvas status | Meaning |
-|---|---|
-| Waiting | A stage or resource exists but is not yet eligible to run or has not been approved |
-| Queued | A real FaaS job is waiting for an eligible worker |
-| Running | A worker has claimed the job and holds its lease |
-| Succeeded | The job or deployment has returned a successful recorded result |
-| Failed | The job reached its terminal failure state or the deployment reconciliation failed |
+- `GET /api/v1/twin/snapshot` — shared observed resources and relationships for the current authenticated console.
+- `POST /api/v1/twin/refresh` — queue a topology refresh; operator/admin role and CSRF header required.
+- `GET /api/v1/twin/resources/{resource_id}/history` — timestamped observations and version history for one resource.
+- `GET /api/v1/canvas/snapshot` — combined execution and infrastructure graph.
+- `GET /api/v1/canvas/stream` — authenticated SSE snapshots refreshed from durable records.
+- `GET /api/v1/canvas/artifacts/blueprint` and `.../playbook` — generated work-product previews.
 
-The stream is a lightweight polling-backed SSE projection, not a broker-backed push bus. It reflects durable worker state at the polling interval; the UI does not claim sub-second delivery or expose raw worker payloads. The graph layout is calculated in the browser from stable node IDs and the persisted relationships.
+### Status and trust boundaries
+
+A resource's status means what its provider/worker actually reported, not what the model intended. Carpenter-managed host online/offline state comes from heartbeat freshness. Proxmox VM state comes from the provider inventory/current-status API. Kubernetes workload and pod state comes from returned API status; service/PVC/PV state reflects the fields visible to the worker identity.
+
+The digital-twin inventory is **installation-wide and shared by authenticated console users in this release**. The workflow and conversation job history remain session-scoped. Worker property ingestion applies a conservative property allow-list and excludes credential-like fields. The topology API does not return provider credentials or raw FaaS payloads.
+
+### Current coverage and deliberate limits
+
+- Proxmox inventory is cluster-resource based, with configuration reads for a bounded number of QEMU guests to discover bridges and attached volumes.
+- Kubernetes inventory is namespace-scoped (configured by `CARPENTER_KUBERNETES_NAMESPACE`, defaulting to `default`) and constrained by the service account's RBAC permissions. Kubernetes Node objects are currently inferred from pod scheduling; a full cluster-wide node/taint/condition inventory is a follow-on.
+- Local host interfaces/subnets and mounted filesystems are read-only observations. They do not imply that The Carpenter manages the host's network or storage configuration.
+- GAMGEE inventory is imported only when its signed installer explicitly returns the documented `observed_resources` and `observed_relationships` contract.
+- AWS, Azure and GCP provider inventories are not implemented in this increment. The resource model is provider-neutral so those adapters can be added without changing the graph contract.
+- Resource versions and observation history are persisted, but this increment does not yet infer deletion from absence, run scheduled drift detection, or perform desired-versus-observed remediation. Missing resources are not automatically marked deleted because inventory may be partial or RBAC-restricted.
+- SSE is a 1.5-second polling-backed projection over SQLite, not a broker-backed push bus. It reflects worker results when those results are persisted.
+
+The resource, relationship and observation records are stored in the Carpenter SQLite database for this release. They are separate from the saved IaC plan: desired state remains in the deployment plan; observed state belongs to the Digital Twin.
 
 ## Principles and architecture
 
