@@ -624,7 +624,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                 vm_configs.append((node, vmid, 0))
         elif kind == "storage" and node:
             nodes.add(node)
-            storage_name = str(item.get("storage") or item.get("id", "").split("/")[1] if len(str(item.get("id", "")).split("/")) > 1 else "")
+            storage_name = str(item.get("storage") or (str(item.get("id", "")).split("/")[1] if len(str(item.get("id", "")).split("/")) > 1 else ""))
             if not storage_name:
                 continue
             native = f"storage/{node}/{storage_name}"
@@ -652,7 +652,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         vm_native = f"qemu/{vmid}"
         for key, raw in config.items():
-            if re.fullmatch(r"net\\d+", str(key)) and isinstance(raw, str):
+            if re.fullmatch(r"net\d+", str(key)) and isinstance(raw, str):
                 options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
                 bridge = options.get("bridge")
                 if bridge:
@@ -665,7 +665,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                         "target_provider": "proxmox", "target_native_id": bridge_native,
                         "relation": "connected_to",
                     })
-            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\\d+", str(key)) and isinstance(raw, str):
+            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\d+", str(key)) and isinstance(raw, str):
                 volume_ref = raw.split(",", 1)[0]
                 if ":" in volume_ref:
                     pool, volume_name = volume_ref.split(":", 1)
