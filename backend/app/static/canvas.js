@@ -143,7 +143,7 @@
         if(delta.has(a.id)){delta.get(a.id).x+=fx;delta.get(a.id).y+=fy;}
         if(delta.has(b.id)){delta.get(b.id).x-=fx;delta.get(b.id).y-=fy;}
       }
-      (snapshot.edges||[]).forEach(edge=>{
+      (activeGraph.edges||[]).forEach(edge=>{
         const pa=positions.get(edge.source),pb=positions.get(edge.target);
         if(!pa||!pb) return;
         const dx=pb.x-pa.x,dy=pb.y-pa.y,distance=Math.max(1,Math.hypot(dx,dy));
