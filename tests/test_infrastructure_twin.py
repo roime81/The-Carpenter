@@ -150,6 +150,36 @@ class InfrastructureTwinTests(unittest.TestCase):
         }
         self.assertIn((service, workload, "routes_to"), pairs)
 
+    def test_proxmox_worker_is_linked_only_to_its_configured_managed_node(self):
+        worker = self.sample_worker()
+        store.upsert_agent(worker)
+        infrastructure_twin.observe_worker_heartbeat(store.get_agent(worker["node_id"]))
+        result = {
+            "managed_node": "pve-01",
+            "observed_resources": [
+                {"provider": "proxmox", "resource_type": "hypervisor_node",
+                 "native_id": "nodes/pve.example.test:8006/pve-01", "name": "pve-01",
+                 "status": "online", "properties": {"node": "pve-01"}},
+                {"provider": "proxmox", "resource_type": "hypervisor_node",
+                 "native_id": "nodes/pve.example.test:8006/pve-02", "name": "pve-02",
+                 "status": "online", "properties": {"node": "pve-02"}},
+            ],
+            "observed_relationships": [],
+        }
+        infrastructure_twin.observe_discovery_result(
+            "worker-001", "discovery.proxmox_inventory", result,
+            {"payload": {"session_id": "session-a"}, "worker_id": "worker-001"},
+        )
+        agent_id = infrastructure_twin.resource_id("carpenter-agent", "worker-001")
+        relations = {
+            (item["source_resource_id"], item["target_resource_id"], item["relation"])
+            for item in store.list_twin_relationships()
+        }
+        pve1 = infrastructure_twin.resource_id("proxmox", "nodes/pve.example.test:8006/pve-01")
+        pve2 = infrastructure_twin.resource_id("proxmox", "nodes/pve.example.test:8006/pve-02")
+        self.assertIn((agent_id, pve1, "manages"), relations)
+        self.assertNotIn((agent_id, pve2, "manages"), relations)
+
     def test_resource_observations_are_versioned_and_secret_fields_are_not_stored(self):
         base = {
             "resource_id": infrastructure_twin.resource_id("proxmox", "qemu/101"),
