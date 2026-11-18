@@ -159,7 +159,7 @@ class WorkerCapabilityTests(unittest.TestCase):
                 "status": {"phase": "Bound"},
             }]},
             {"items": [{
-                "metadata": {"name": "web-pod-1", "ownerReferences": [{"name": "web-replicaset"}]},
+                "metadata": {"name": "web-pod-1", "labels": {"app": "web"}, "ownerReferences": [{"name": "web-replicaset"}]},
                 "spec": {"nodeName": "kube-node-01"},
                 "status": {
                     "phase": "Running", "podIP": "10.1.1.10",
@@ -188,7 +188,7 @@ class WorkerCapabilityTests(unittest.TestCase):
         self.assertIn(("compute_host", "nodes/kube.example.test:6443/kube-node-01"), resources)
         relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
                      for item in result["observed_relationships"]}
-        self.assertIn(("services/kube.example.test:6443/production/web", "deployments/kube.example.test:6443/production/web", "routes_to"), relations)
+        self.assertIn(("services/kube.example.test:6443/production/web", "pods/kube.example.test:6443/production/web-pod-1", "routes_to"), relations)
         self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "nodes/kube.example.test:6443/kube-node-01", "scheduled_on"), relations)
         self.assertIn(("replicasets/kube.example.test:6443/production/web-replicaset", "deployments/kube.example.test:6443/production/web", "managed_by"), relations)
         self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "replicasets/kube.example.test:6443/production/web-replicaset", "instance_of"), relations)
