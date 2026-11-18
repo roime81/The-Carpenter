@@ -136,9 +136,9 @@ The resource, relationship and observation records are stored in the Carpenter S
         Metrics • HA • Failover • LB
 ```
 
-## Latest release
+## Release package
 
-**The Carpenter v0.7.0 — Infrastructure Digital Twin** introduces the first live, provider-observed infrastructure graph. See the [release notes](docs/releases/v0.7.0.md) for what's new, what's upgraded, validation and known limitations.
+**The Carpenter v0.7.0 — Infrastructure Digital Twin** is prepared as the next release package. It introduces the first live, provider-observed infrastructure graph. See the [release notes](docs/releases/v0.7.0.md) for what's new, what's upgraded, validation and known limitations. The GitHub Release and `v0.7.0` tag are to be published after this documentation update is merged.
 
 ## Implementation status
 
