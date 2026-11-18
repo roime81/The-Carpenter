@@ -181,3 +181,27 @@ body{
 body.dialog-open{overflow:hidden}
 @media(max-width:900px){.live-panels{grid-template-columns:1fr}.event-list{max-height:240px}}
 @media(max-width:650px){.artifact-cards{grid-template-columns:1fr}.artifact-card{padding:11px}.graph-viewport{height:470px;min-height:470px}.canvas-legend{gap:8px}.canvas-legend span{font-size:8px}.stream-counter{display:none}.node-timestamps{grid-template-columns:1fr 1fr}.node-log-row{grid-template-columns:90px minmax(0,1fr)}}
+
+
+/* Observed Infrastructure Digital Twin node palette */
+.graph-node.status-ready .node-core{fill:#5f91bf;stroke:#3f739f;opacity:1}
+.graph-node.status-queued .node-core{fill:#b1c6d9;stroke:#7e9db9}
+.graph-node.status-waiting .node-core{fill:#d7e0e9;stroke:#b5c3d0}
+.graph-node.status-idle .node-core{fill:#e0e6ed;stroke:#bbc7d3}
+.graph-node.resource-compute_host .node-core{fill:#4f86b6;stroke:#326b9e}
+.graph-node.resource-hypervisor_node .node-core{fill:#648eae;stroke:#496f8d}
+.graph-node.resource-virtual_machine .node-core{fill:#397bb8;stroke:#255f98}
+.graph-node.resource-cluster .node-core{fill:#6f9d91;stroke:#4e8273}
+.graph-node.resource-workload .node-core{fill:#7f9fc2;stroke:#5c82ad}
+.graph-node.resource-service .node-core{fill:#8b9bbb;stroke:#687d9f}
+.graph-node.resource-network .node-core{fill:#a4b9cd;stroke:#829bb4}
+.graph-node.resource-network_interface .node-core{fill:#c2cfda;stroke:#9eafbf}
+.graph-node.resource-storage_volume .node-core{fill:#b1a58f;stroke:#8e8067}
+.graph-node.resource-hypervisor .node-core{fill:#9babc0;stroke:#7388a5}
+.graph-node.resource-container_runtime .node-core{fill:#9bbdb0;stroke:#709b8a}
+.graph-node.resource-control_plane .node-core{fill:#3d78b6;stroke:#285f98}
+.edge-manages,.edge-provisioned,.edge-hosts{stroke:#477da9;stroke-width:1.8;opacity:.88}
+.edge-has_storage,.edge-uses_storage{stroke:#9a8c74;stroke-width:1.5;opacity:.78}
+.edge-connected_to,.edge-has_interface{stroke:#7d9fbe;stroke-width:1.35;opacity:.78}
+.edge-contains,.edge-routes_to,.edge-runs_hypervisor,.edge-provides_runtime{stroke:#6b9c8d;stroke-width:1.55;opacity:.82}
+.edge-control_plane,.edge-worker_host{stroke:#5686af;stroke-width:2;opacity:.9}
