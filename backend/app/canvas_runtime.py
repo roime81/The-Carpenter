@@ -223,6 +223,15 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             return "failed"
         if any(value == "running" for value in statuses):
             return "running"
+        if any(value == "queued" for value in statuses):
+            return "queued"
+        if any(
+            item.get("status") == "succeeded"
+            and isinstance(item.get("result"), dict)
+            and item["result"].get("inventory_complete") is False
+            for item in items
+        ):
+            return "partial"
         if statuses and all(value == "succeeded" for value in statuses):
             return "succeeded"
         if statuses:
@@ -296,6 +305,16 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             logs.append({"at": job.get("created_at"), "message": f"Queued {job.get('function_name')}."})
         status_map = {"queued": "queued", "running": "running", "succeeded": "succeeded", "dead": "failed"}
         ui_status = status_map.get(job.get("status"), "waiting")
+        result_payload = job.get("result") if isinstance(job.get("result"), dict) else {}
+        inventory_partial = job.get("status") == "succeeded" and result_payload.get("inventory_complete") is False
+        if inventory_partial:
+            ui_status = "partial"
+            warning_count = len(result_payload.get("warnings") or [])
+            logs.append({
+                "at": job.get("updated_at"),
+                "message": f"Inventory is partial; {warning_count} provider read warning(s) were recorded.",
+                "event_type": "twin.inventory.partial",
+            })
         stage_id = "stage:discovery" if str(job.get("function_name", "")).startswith("discovery.") else "stage:provision"
         worker_id = job.get("worker_id") or job.get("target_worker_id") or next((event.get("detail", {}).get("worker_id") for event in reversed(history) if event.get("detail", {}).get("worker_id")), None)
         label = str(job.get("function_name", "Worker job")).split(".")[-1]
@@ -307,7 +326,9 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
                  created_at=job.get("created_at"), updated_at=job.get("updated_at"),
                  started_at=next((event.get("created_at") for event in history if event.get("event_type") == "faas.job.claimed"), None),
                  completed_at=job.get("updated_at") if job.get("status") in {"succeeded", "dead"} else None,
-                 error=_clean(job.get("error"), 900), logs=logs, parent_id=stage_id)
+                 error=_clean(job.get("error"), 900), logs=logs, parent_id=stage_id,
+                 inventory_complete=result_payload.get("inventory_complete"),
+                 inventory_warning_count=len(result_payload.get("warnings") or []))
         if stage_id in {node["id"] for node in nodes}:
             link(stage_id, f"job:{job_id}", "job")
         if worker_id:
