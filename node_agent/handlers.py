@@ -589,6 +589,7 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
     rows = _proxmox_request("GET", "/cluster/resources") or []
     observed_resources: list[dict[str, Any]] = []
     observed_relationships: list[dict[str, Any]] = []
+    warnings: list[str] = []
     nodes: set[str] = set()
     vm_configs: list[tuple[str, str, int]] = []
 
@@ -655,7 +656,8 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         encoded_node = urllib.parse.quote(node, safe="")
         try:
             config = _proxmox_request("GET", f"/nodes/{encoded_node}/qemu/{vmid}/config") or {}
-        except Exception:
+        except Exception as exc:
+            warnings.append(f"qemu/{vmid} config: {type(exc).__name__}")
             continue
         vm_native = f"qemu/{endpoint}/{vmid}"
         for key, raw in config.items():
@@ -692,7 +694,8 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
         "managed_node": os.getenv("CARPENTER_PROXMOX_NODE"),
         "observed_resources": observed_resources,
         "observed_relationships": observed_relationships,
-        "inventory_complete": True,
+        "inventory_complete": not warnings,
+        "warnings": warnings[:50],
         "resource_count": len(observed_resources),
     }
 
