@@ -61,22 +61,28 @@
     summary.textContent=`${done+1} nodes active in journey · ${done} complete · ${active} in progress`;
   }
   function applyConversationState(){
-    const entries=[...document.querySelectorAll(".journal-entry")].map(e=>e.innerText.toLowerCase()).join(" ");
-    const body=document.body.innerText.toLowerCase();
-    const text=entries+" "+body;
-    const hasPrompt=document.querySelectorAll(".journal-entry.user").length>0;
-    if(!hasPrompt)return;
-    ["intent","discovery","blueprint","playbook","functions","iac"].forEach(id=>states[id]="done");
-    if(/discov|inventory|worker|capacity/.test(text))states.discovery="done";
-    if(/blueprint|design|workbook|architecture/.test(text))states.blueprint="done";
-    if(/playbook|execution plan/.test(text))states.playbook="done";
-    if(/function|faas|provider/.test(text))states.functions="done";
-    if(/iac|fingerprint|resource graph|generated artifact/.test(text))states.iac="done";
-    if(/approval not completed|not ready|blocker|failed|error/.test(text)){states.approval="blocked";states.provision="idle";}
-    else if(/approved/.test(text)){states.approval="done";}
-    if(/queued|provision|dispatch/.test(text)){states.approval="done";states.provision="active";}
-    if(/deployment status: succeeded|all jobs succeeded|verified cloud/.test(text)){states.provision="done";states.verify="done";}
-    else if(/deployment status: failed/.test(text)){states.provision="blocked";}
+    const userEntries=[...document.querySelectorAll(".journal-entry.user")].map(e=>e.innerText.toLowerCase());
+    const assistantEntries=[...document.querySelectorAll(".journal-entry.assistant")].map(e=>e.innerText.toLowerCase());
+    if(!userEntries.length)return;
+    const userText=userEntries.join(" ");
+    const text=assistantEntries.join(" ");
+    states.intent="done";
+    states.discovery="active";
+    if(/discover(?:ed|y complete|y results)|inventory (?:shows|contains)|online worker|worker capability/.test(text))states.discovery="done";
+    if(/deployment plan|resource graph|blueprint|target architecture/.test(text))states.blueprint="done";
+    if(/playbook|execution steps|deployment sequence/.test(text))states.playbook="done";
+    if(/function.*(?:selected|queued|version)|faas jobs queued|provider function/.test(text))states.functions="done";
+    if(/iac fingerprint|fingerprint:|resource graph|generated artifact|iac bundle/.test(text))states.iac="done";
+    if(/approval not completed|execution not started|not ready|readiness blocker|failed|error/.test(text)){
+      states.approval="blocked";
+    } else if(/deployment approved|approved\./.test(text)){
+      states.approval="done";
+    } else if(states.iac==="done"){
+      states.approval="active";
+    }
+    if(/queued|provider work|dispatch(?:ed|ing)/.test(text)){states.approval="done";states.provision="active";}
+    if(/deployment status: succeeded|all linked jobs succeeded|deployment complete/.test(text)){states.provision="done";states.verify="done";}
+    if(/deployment status: failed|faas dispatch failed/.test(text)){states.provision="blocked";}
     hint.classList.add("hidden");render();
     const selectedNode=nodes.find(n=>states[n.id]==="active")||nodes.find(n=>states[n.id]==="blocked")||nodes.find(n=>states[n.id]==="done"&&n.id!=="root");
     if(selectedNode)selectNode(selectedNode.id);
