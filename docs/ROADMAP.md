@@ -88,6 +88,68 @@ The Carpenter is being developed as an AI Cloud Deployment Agent and AI Infrastr
 - [ ] Fencing, backup/restore and disaster-recovery execution.
 - [ ] Closed-loop remediation with approvals, cooldowns and rollback.
 
+
+## 6. Infrastructure Digital Twin 2.0 — planned pipeline
+
+**Status: future programme / not included in v0.7.0.** Version 0.7.0 establishes durable observed topology for Carpenter-managed workers, Proxmox and namespace-scoped Kubernetes. Digital Twin 2.0 is reserved for multi-cloud coverage, continuous reconciliation, trustworthy drift intelligence and controlled closed-loop operations.
+
+### Phase A — broaden topology coverage
+
+- [ ] AWS inventory: accounts, regions, VPCs, subnets, routes, security groups, compute, load balancers, managed Kubernetes, databases and storage.
+- [ ] Azure inventory: subscriptions, resource groups, VNets/subnets, NSGs, compute, AKS, managed services and storage.
+- [ ] GCP inventory: projects, regions/zones, VPCs/subnets, firewall rules, compute, GKE, managed services and storage.
+- [ ] Expand Kubernetes to cluster-wide Nodes, conditions, taints, zones, Ingress/Gateway, NetworkPolicy, StorageClass, CSI/PV topology and controller relationships.
+- [ ] Deepen Proxmox inventory for bridges/VLANs, pools, storage backends, guest NICs/disks, HA groups and cluster relationships.
+- [ ] Add explicit inventory-scope/permission manifests that distinguish unsupported, forbidden, unavailable and successfully empty collections.
+- [ ] Complete GAMGEE's observed-resource adapter and provider-native identity contract.
+
+### Phase B — continuous reconciliation and lifecycle history
+
+- [ ] Scheduled inventory policies per provider, account/cluster, region, namespace and worker.
+- [ ] Inventory-run records with scope, start/end, provider, worker, coverage, warnings, pagination cursor and completeness evidence.
+- [ ] Resource lifecycle states and tombstones; infer deletion only after a complete authoritative scan of the exact scope or an explicit provider deletion event.
+- [ ] Track moves, replacements and identity changes without merging unrelated resources.
+- [ ] Point-in-time topology snapshots, historical graph queries and deployment lineage.
+- [ ] Safe backoff, rate limits, quota handling and resumable discovery.
+
+### Phase C — desired-versus-observed drift intelligence
+
+- [ ] Compare observed resources with saved Carpenter IaC desired-state graphs and explicit ownership/adoption records.
+- [ ] Classify configuration, capacity, availability, network exposure, storage, security-policy and unmanaged-resource drift.
+- [ ] Show evidence, diffs, first/last observed times, dependency impact/blast radius and confidence in the inspector.
+- [ ] Add policy packs for security, resilience, naming, tagging, cost guardrails and architecture standards.
+- [ ] Distinguish unmanaged, externally managed and Carpenter-managed resources; never infer ownership from observation alone.
+- [ ] Add waivers, expiry, exception ownership and audit history.
+
+### Phase D — approved remediation and operational control
+
+- [ ] Generate proposed remediation plans with preconditions, blast-radius analysis and deterministic IaC diffs.
+- [ ] Require human approval for mutations by default; enforce role, policy, scope, change window and resource ownership.
+- [ ] Execute through versioned FaaS/provider adapters with idempotency, lease safety and immutable audit.
+- [ ] Verify post-change provider state and update the twin only from returned observations.
+- [ ] Add rollback/compensation and stop conditions for partial failure; do not promise rollback for irreversible provider operations.
+- [ ] Keep autonomous remediation disabled until policy simulation, approval, recovery and rollback tests pass.
+
+### Phase E — scale and operator experience
+
+- [ ] Move high-volume shared inventory/event workloads from SQLite to a shared transactional data store with migration and backup.
+- [ ] Add incremental graph deltas or durable event transport when polling-backed SSE is insufficient.
+- [ ] Add topology search, grouping, dependency tracing, blast-radius exploration and time-travel comparison.
+- [ ] Add health, capacity, cost, security and compliance overlays without conflating inferred scores with provider-reported status.
+- [ ] Add tenant/project isolation and authorization filters for shared multi-account topology.
+- [ ] Define retention, archival, export and disaster-recovery policies for observations and snapshots.
+
+### Digital Twin 2.0 exit criteria
+
+- [ ] Provider coverage and permission boundaries are visible for every inventory scope; partial/failed scans cannot masquerade as complete.
+- [ ] Stable identities and relationships are tested across accounts, regions, clusters, moves and resource recreation.
+- [ ] Deletion inference is backed by complete-scope evidence or provider events and is auditable.
+- [ ] Drift findings are reproducible from retained snapshots and policy versions.
+- [ ] Every proposed mutation has ownership checks, a policy decision, approval, execution trace and post-change verification.
+- [ ] Failure-injection tests cover throttling, expired credentials, partial scans, worker loss, duplicate events and failed compensation.
+
+**Sequencing rule:** complete Phase A before broad drift claims; Phase B before deletion inference; Phase C before remediation proposals; and Phase D safety gates before enabling any autonomous changes. Until then, the Digital Twin remains an observation and decision-support system, not an autonomous infrastructure mutator.
+
 ## Production readiness gate
 
 Do not expose the deployment APIs for production use until the system has SSO/RBAC, unique node identity, mTLS, secret-manager integration, signed worker artifacts, process-isolated FaaS, persistent shared database, security testing and tested recovery runbooks.
