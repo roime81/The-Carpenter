@@ -53,7 +53,7 @@
   };
   const statusClass = value => ({
     idle:"idle", down:"idle", offline:"idle", ready:"ready", online:"ready", waiting:"waiting", observed:"waiting", queued:"queued",
-    running:"active", reachable:"active", active:"active", mounted:"active", succeeded:"done", started:"done", applied:"queued", available:"done", bound:"done", up:"ready", pending:"waiting", stopped:"idle", failed:"blocked"
+    running:"active", reachable:"active", active:"active", mounted:"active", succeeded:"done", started:"done", applied:"queued", available:"done", bound:"done", up:"ready", pending:"waiting", stopped:"idle", failed:"blocked", partial:"partial"
   }[value] || "waiting");
   const fmtTime = value => {
     if (!value) return "—";
