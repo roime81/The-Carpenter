@@ -46,12 +46,12 @@
   };
   const statusText = {
     idle:"DORMANT", ready:"READY", online:"ONLINE", observed:"OBSERVED", waiting:"WAITING", queued:"QUEUED",
-    running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", reachable:"REACHABLE",
+    running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", reachable:"REACHABLE", stopped:"STOPPED", bound:"BOUND", pending:"PENDING", active:"ACTIVE",
     applied:"APPLIED", mounted:"MOUNTED", available:"AVAILABLE", up:"UP", down:"DOWN", offline:"OFFLINE", failed:"FAILED"
   };
   const statusClass = value => ({
     idle:"idle", down:"idle", offline:"idle", ready:"ready", online:"ready", waiting:"waiting", observed:"waiting", queued:"queued",
-    running:"active", reachable:"active", mounted:"active", succeeded:"done", started:"done", applied:"queued", available:"done", up:"ready", failed:"blocked"
+    running:"active", reachable:"active", active:"active", mounted:"active", succeeded:"done", started:"done", applied:"queued", available:"done", bound:"done", up:"ready", pending:"waiting", stopped:"idle", failed:"blocked"
   }[value] || "waiting");
   const fmtTime = value => {
     if (!value) return "—";
