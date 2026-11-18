@@ -965,6 +965,24 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                         "relation": "instance_of",
                     })
                     break
+        pod_ip = str(status.get("podIP") or "")
+        if pod_ip:
+            try:
+                ipaddress.ip_address(pod_ip)
+            except ValueError:
+                pod_ip = ""
+        if pod_ip:
+            interface_native = f"pod-ip/{endpoint}/{pod_ip}"
+            observed_resources.append({
+                "provider": "kubernetes", "resource_type": "network_interface",
+                "native_id": interface_native, "name": pod_ip, "status": "up",
+                "properties": {"address": pod_ip, "pod_ip": pod_ip, "interface": "pod-network"},
+            })
+            observed_relationships.append({
+                "source_provider": "kubernetes", "source_native_id": native,
+                "target_provider": "kubernetes", "target_native_id": interface_native,
+                "relation": "has_interface",
+            })
         node_name = str(spec.get("nodeName") or "")
         if node_name:
             node_native = f"nodes/{endpoint}/{node_name}"
