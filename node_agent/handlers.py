@@ -38,8 +38,13 @@ def installed_capabilities() -> dict[str, str]:
         "CARPENTER_PROXMOX_TEMPLATE_VMID",
     )):
         result["compute.proxmox_deploy"] = "1.0.0"
+    if all(os.getenv(key) for key in (
+        "CARPENTER_PROXMOX_URL", "CARPENTER_PROXMOX_TOKEN_ID", "CARPENTER_PROXMOX_TOKEN_SECRET",
+    )):
+        result["discovery.proxmox_inventory"] = "1.0.0"
     if os.getenv("CARPENTER_KUBERNETES_API_URL") and os.getenv("CARPENTER_KUBERNETES_TOKEN"):
         result["platform.kubernetes_deploy"] = "1.0.0"
+        result["discovery.kubernetes_inventory"] = "1.0.0"
     if os.getenv("CARPENTER_GAMGEE_INSTALLER_URL") and os.getenv("CARPENTER_GAMGEE_INSTALLER_TOKEN"):
         result["gamgee.bootstrap"] = "1.0.0"
     return result
@@ -573,10 +578,347 @@ def gamgee_bootstrap(payload: dict[str, Any]) -> dict[str, Any]:
     return {"deployment_id": deployment_id, "installer_response": result, "execution_status": "succeeded"}
 
 
+def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+    """Read the Proxmox cluster resource inventory and selected VM attachments."""
+    rows = _proxmox_request("GET", "/cluster/resources") or []
+    observed_resources: list[dict[str, Any]] = []
+    observed_relationships: list[dict[str, Any]] = []
+    nodes: set[str] = set()
+    vm_configs: list[tuple[str, str, int]] = []
+
+    def resource(provider: str, resource_type: str, native_id: str, name: str,
+                 status: str, properties: dict[str, Any]) -> None:
+        observed_resources.append({
+            "provider": provider, "resource_type": resource_type,
+            "native_id": native_id, "name": name, "status": status,
+            "properties": properties,
+        })
+
+    for item in rows[:1000]:
+        kind = str(item.get("type") or "")
+        node = str(item.get("node") or "")
+        if kind == "node" and node:
+            nodes.add(node)
+            resource("proxmox", "hypervisor_node", f"nodes/{node}", node,
+                     str(item.get("status") or "observed"), {
+                         key: item.get(key) for key in ("cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
+                         if item.get(key) is not None
+                     })
+        elif kind in {"qemu", "lxc"} and node:
+            nodes.add(node)
+            vmid = str(item.get("vmid") or item.get("id", "").split("/")[-1])
+            if not vmid:
+                continue
+            native = f"{kind}/{vmid}"
+            resource("proxmox", "virtual_machine", native,
+                     str(item.get("name") or vmid), str(item.get("status") or "observed"), {
+                         key: item.get(key) for key in ("vmid", "cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
+                         if item.get(key) is not None
+                     })
+            observed_relationships.append({
+                "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+                "target_provider": "proxmox", "target_native_id": native,
+                "relation": "hosts",
+            })
+            if kind == "qemu" and len(vm_configs) < 100:
+                vm_configs.append((node, vmid, 0))
+        elif kind == "storage" and node:
+            nodes.add(node)
+            storage_name = str(item.get("storage") or item.get("id", "").split("/")[1] if len(str(item.get("id", "")).split("/")) > 1 else "")
+            if not storage_name:
+                continue
+            native = f"storage/{node}/{storage_name}"
+            resource("proxmox", "storage_pool", native, storage_name,
+                     str(item.get("status") or "observed"), {
+                         key: item.get(key) for key in ("type", "content", "used", "total", "shared")
+                         if item.get(key) is not None
+                     })
+            observed_relationships.append({
+                "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+                "target_provider": "proxmox", "target_native_id": native,
+                "relation": "provides_storage",
+            })
+
+    for node in sorted(nodes):
+        if not any(item.get("native_id") == f"nodes/{node}" for item in observed_resources):
+            resource("proxmox", "hypervisor_node", f"nodes/{node}", node, "observed", {"node": node})
+
+    # Read per-VM configuration to expose virtual bridges and storage attachments.
+    for node, vmid, _ in vm_configs:
+        encoded_node = urllib.parse.quote(node, safe="")
+        try:
+            config = _proxmox_request("GET", f"/nodes/{encoded_node}/qemu/{vmid}/config") or {}
+        except Exception:
+            continue
+        vm_native = f"qemu/{vmid}"
+        for key, raw in config.items():
+            if re.fullmatch(r"net\\d+", str(key)) and isinstance(raw, str):
+                options = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+                bridge = options.get("bridge")
+                if bridge:
+                    bridge_native = f"network/{node}/{bridge}"
+                    resource("proxmox", "network", bridge_native, bridge, "observed", {
+                        "node": node, "bridge": bridge, "role": "virtual_bridge",
+                    })
+                    observed_relationships.append({
+                        "source_provider": "proxmox", "source_native_id": vm_native,
+                        "target_provider": "proxmox", "target_native_id": bridge_native,
+                        "relation": "connected_to",
+                    })
+            elif re.fullmatch(r"(?:scsi|virtio|sata|ide)\\d+", str(key)) and isinstance(raw, str):
+                volume_ref = raw.split(",", 1)[0]
+                if ":" in volume_ref:
+                    pool, volume_name = volume_ref.split(":", 1)
+                    volume_native = f"volume/{node}/{volume_ref}"
+                    resource("proxmox", "storage_volume", volume_native, volume_name, "attached", {
+                        "node": node, "device": key, "storage_pool": pool,
+                    })
+                    observed_relationships.append({
+                        "source_provider": "proxmox", "source_native_id": vm_native,
+                        "target_provider": "proxmox", "target_native_id": volume_native,
+                        "relation": "uses_storage",
+                    })
+
+    return {
+        "provider": "proxmox",
+        "observed_resources": observed_resources,
+        "observed_relationships": observed_relationships,
+        "inventory_complete": True,
+        "resource_count": len(observed_resources),
+    }
+
+
+def _kubernetes_read(path: str) -> dict[str, Any]:
+    api_url = os.environ["CARPENTER_KUBERNETES_API_URL"].rstrip("/")
+    token = os.environ["CARPENTER_KUBERNETES_TOKEN"]
+    if not api_url.startswith("https://"):
+        raise ValueError("Kubernetes API URL must use HTTPS")
+    request = urllib.request.Request(
+        api_url + path,
+        headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, context=ssl.create_default_context(), timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Kubernetes inventory request failed: {type(exc).__name__}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("Kubernetes inventory returned a non-object response")
+    return payload
+
+
+def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+    """Observe namespaced Kubernetes objects visible to this worker's service account."""
+    api = urllib.parse.urlparse(os.environ["CARPENTER_KUBERNETES_API_URL"])
+    endpoint = (api.hostname or "unknown-cluster") + (f":{api.port}" if api.port else "")
+    namespace = str(payload.get("namespace") or os.getenv("CARPENTER_KUBERNETES_NAMESPACE", "default"))
+    if not _dns_label(namespace):
+        raise ValueError("Kubernetes inventory namespace must be a lowercase DNS label")
+    encoded_namespace = urllib.parse.quote(namespace, safe="")
+    observed_resources: list[dict[str, Any]] = [
+        {
+            "provider": "kubernetes", "resource_type": "cluster",
+            "native_id": f"api/{endpoint}", "name": endpoint,
+            "status": "reachable", "properties": {"cluster_endpoint": endpoint},
+        },
+        {
+            "provider": "kubernetes", "resource_type": "namespace",
+            "native_id": f"namespace/{namespace}", "name": namespace,
+            "status": "observed", "properties": {"namespace": namespace},
+        },
+    ]
+    observed_relationships: list[dict[str, Any]] = [{
+        "source_provider": "kubernetes", "source_native_id": f"api/{endpoint}",
+        "target_provider": "kubernetes", "target_native_id": f"namespace/{namespace}",
+        "relation": "contains",
+    }]
+    warnings: list[str] = []
+
+    def list_items(path: str) -> list[dict[str, Any]]:
+        try:
+            result = _kubernetes_read(path)
+            items = result.get("items", [])
+            return items if isinstance(items, list) else []
+        except Exception as exc:
+            warnings.append(f"{path.rsplit('/', 1)[-1]}: {type(exc).__name__}")
+            return []
+
+    workloads: list[dict[str, Any]] = []
+    for plural, api_path in (
+        ("deployments", f"/apis/apps/v1/namespaces/{encoded_namespace}/deployments"),
+        ("statefulsets", f"/apis/apps/v1/namespaces/{encoded_namespace}/statefulsets"),
+        ("daemonsets", f"/apis/apps/v1/namespaces/{encoded_namespace}/daemonsets"),
+    ):
+        for item in list_items(api_path)[:300]:
+            metadata = item.get("metadata") or {}
+            spec = item.get("spec") or {}
+            status = item.get("status") or {}
+            name = str(metadata.get("name") or "")
+            if not name:
+                continue
+            desired = int(spec.get("replicas", 1) or 1)
+            ready = int(status.get("readyReplicas", status.get("numberReady", 0)) or 0)
+            kind = plural.rstrip("s")
+            native = f"{plural}/{namespace}/{name}"
+            containers = (
+                ((spec.get("template") or {}).get("spec") or {}).get("containers") or []
+            )
+            images = [str(container.get("image")) for container in containers if container.get("image")]
+            selector = ((spec.get("selector") or {}).get("matchLabels") or {})
+            resource_status = "ready" if desired > 0 and ready >= desired else "applied"
+            observed_resources.append({
+                "provider": "kubernetes", "resource_type": "workload",
+                "native_id": native, "name": name, "status": resource_status,
+                "properties": {
+                    "namespace": namespace, "replicas": desired, "ready_replicas": ready,
+                    "image": ", ".join(images[:6]), "selector": selector,
+                    "uid": metadata.get("uid"), "generation": metadata.get("generation"),
+                    "resource_version": metadata.get("resourceVersion"), "kind": plural,
+                },
+            })
+            observed_relationships.append({
+                "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+                "target_provider": "kubernetes", "target_native_id": native,
+                "relation": "contains",
+            })
+            workloads.append({"native_id": native, "selector": selector})
+
+    services = list_items(f"/api/v1/namespaces/{encoded_namespace}/services")
+    for item in services[:300]:
+        metadata = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        name = str(metadata.get("name") or "")
+        if not name:
+            continue
+        native = f"services/{namespace}/{name}"
+        observed_resources.append({
+            "provider": "kubernetes", "resource_type": "service",
+            "native_id": native, "name": name, "status": "observed",
+            "properties": {
+                "namespace": namespace, "service_type": spec.get("type", "ClusterIP"),
+                "cluster_ip": spec.get("clusterIP"),
+                "port": (spec.get("ports") or [{}])[0].get("port"),
+                "target_port": (spec.get("ports") or [{}])[0].get("targetPort"),
+                "protocol": (spec.get("ports") or [{}])[0].get("protocol", "TCP"),
+                "selector": spec.get("selector") or {},
+            },
+        })
+        observed_relationships.append({
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "target_provider": "kubernetes", "target_native_id": native,
+            "relation": "contains",
+        })
+        selector = spec.get("selector") or {}
+        for workload in workloads:
+            labels = workload.get("selector") or {}
+            if selector and all(labels.get(key) == value for key, value in selector.items()):
+                observed_relationships.append({
+                    "source_provider": "kubernetes", "source_native_id": native,
+                    "target_provider": "kubernetes", "target_native_id": workload["native_id"],
+                    "relation": "routes_to",
+                })
+
+    for item in list_items(f"/api/v1/namespaces/{encoded_namespace}/persistentvolumeclaims")[:300]:
+        metadata = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        status = item.get("status") or {}
+        name = str(metadata.get("name") or "")
+        if not name:
+            continue
+        native = f"pvc/{namespace}/{name}"
+        observed_resources.append({
+            "provider": "kubernetes", "resource_type": "storage_volume",
+            "native_id": native, "name": name,
+            "status": str(status.get("phase") or "Pending").casefold(),
+            "properties": {
+                "namespace": namespace, "phase": status.get("phase"),
+                "storage_class": spec.get("storageClassName"),
+                "storage_request": (spec.get("resources") or {}).get("requests", {}).get("storage"),
+                "access_modes": spec.get("accessModes") or [],
+            },
+        })
+        observed_relationships.append({
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "target_provider": "kubernetes", "target_native_id": native,
+            "relation": "contains",
+        })
+
+    for item in list_items(f"/api/v1/namespaces/{encoded_namespace}/pods")[:500]:
+        metadata = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        status = item.get("status") or {}
+        name = str(metadata.get("name") or "")
+        if not name:
+            continue
+        native = f"pods/{namespace}/{name}"
+        phase = str(status.get("phase") or "Unknown").casefold()
+        observed_resources.append({
+            "provider": "kubernetes", "resource_type": "workload_instance",
+            "native_id": native, "name": name, "status": phase,
+            "properties": {
+                "namespace": namespace, "phase": status.get("phase"),
+                "node_name": spec.get("nodeName"), "pod_ip": status.get("podIP"),
+                "restart_count": sum(
+                    int(container.get("restartCount", 0) or 0)
+                    for container in (status.get("containerStatuses") or [])
+                ),
+            },
+        })
+        observed_relationships.append({
+            "source_provider": "kubernetes", "source_native_id": f"namespace/{namespace}",
+            "target_provider": "kubernetes", "target_native_id": native,
+            "relation": "contains",
+        })
+        owner = next(iter(metadata.get("ownerReferences") or []), {})
+        owner_name = owner.get("name")
+        if owner_name:
+            for workload in workloads:
+                if workload["native_id"].endswith("/" + owner_name):
+                    observed_relationships.append({
+                        "source_provider": "kubernetes", "source_native_id": native,
+                        "target_provider": "kubernetes", "target_native_id": workload["native_id"],
+                        "relation": "instance_of",
+                    })
+                    break
+        node_name = str(spec.get("nodeName") or "")
+        if node_name:
+            node_native = f"nodes/{node_name}"
+            if not any(item.get("native_id") == node_native for item in observed_resources):
+                observed_resources.append({
+                    "provider": "kubernetes", "resource_type": "compute_host",
+                    "native_id": node_native, "name": node_name, "status": "observed",
+                    "properties": {"node_name": node_name, "role": "kubernetes_worker_node"},
+                })
+                observed_relationships.append({
+                    "source_provider": "kubernetes", "source_native_id": f"api/{endpoint}",
+                    "target_provider": "kubernetes", "target_native_id": node_native,
+                    "relation": "contains",
+                })
+            observed_relationships.append({
+                "source_provider": "kubernetes", "source_native_id": native,
+                "target_provider": "kubernetes", "target_native_id": node_native,
+                "relation": "scheduled_on",
+            })
+
+    if len(observed_resources) <= 2 and warnings:
+        raise RuntimeError("Kubernetes inventory could not read any namespaced resources.")
+    return {
+        "provider": "kubernetes", "namespace": namespace,
+        "observed_resources": observed_resources,
+        "observed_relationships": observed_relationships,
+        "inventory_complete": not warnings,
+        "warnings": warnings[:20],
+        "resource_count": len(observed_resources),
+    }
+
+
 HANDLERS = {
     "discovery.host_inventory": host_inventory,
     "discovery.hypervisor_probe": hypervisor_probe,
     "discovery.storage_network": storage_network,
+    "discovery.proxmox_inventory": proxmox_inventory,
+    "discovery.kubernetes_inventory": kubernetes_inventory,
     "operations.metrics_snapshot": metrics_snapshot,
     "network.tcp_probe": tcp_probe,
     "compute.proxmox_deploy": proxmox_deploy,
