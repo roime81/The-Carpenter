@@ -17,6 +17,7 @@ All notable changes to The Carpenter are documented here.
 - Added a distinct Partial discovery state when provider inventory has read warnings; warning counts are visible in the job inspector instead of presenting incomplete scans as complete.
 - Added tests for resource identity/version/history, Proxmox resource relationships, Kubernetes workload/network/storage topology and partial-inventory status.
 - Documented that the twin is installation-wide in this release, that Kubernetes inventory is namespace/RBAC-scoped, and that AWS/Azure/GCP inventories, deletion inference and automated drift remediation are follow-on work.
+- Reserved **Infrastructure Digital Twin 2.0** in `docs/ROADMAP.md` as a phased future programme: multi-cloud inventory, scheduled reconciliation, safe lifecycle/tombstone handling, drift intelligence, approved remediation and scale/tenant foundations. These capabilities are not implemented in 0.7.0.
 
 ## 0.6.0 — 2026-11-18
 
