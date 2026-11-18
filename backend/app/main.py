@@ -153,6 +153,13 @@ def _execute_approved_plan(deployment_id: str, actor: str, source: str) -> dict[
             raise RuntimeError("The deployment compiler produced no executable provider jobs.")
         for job in queued_jobs:
             link_deployment_job(deployment_id, job["job_id"], job["component"])
+            store.record_event("faas.job.enqueued", job["job_id"], {
+                "deployment_id": deployment_id,
+                "function_name": job.get("function_name"),
+                "function_version": job.get("function_version"),
+                "worker_id": job.get("target_worker_id"),
+                "component": job.get("component"),
+            })
         store.record_event("deployment.execution.queued", deployment_id, {
             "job_ids": [job["job_id"] for job in queued_jobs],
             "components": [job["component"] for job in queued_jobs],
