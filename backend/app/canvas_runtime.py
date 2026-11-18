@@ -252,7 +252,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
                  description=f"Deterministic IaC bundle · fingerprint {(plan.get('iac_bundle') or {}).get('fingerprint', 'n/a')}",
                  updated_at=deployment.get("updated_at"))
         dep_status = deployment.get("status", "planned")
-        approval = "succeeded" if dep_status in {"approved", "executing", "succeeded"} else ("failed" if dep_status == "failed" and not plan.get("ready_to_execute_after_approval") else "waiting")
+        approval = "succeeded" if dep_status in {"approved", "executing", "succeeded"} or (dep_status == "failed" and plan.get("ready_to_execute_after_approval")) else ("failed" if dep_status == "failed" else "waiting")
         add_node("stage:approval", "Human Approval", "stage", approval,
                  description=f"Deployment approval state: {dep_status}. Approval is explicit and separate from model output.",
                  updated_at=deployment.get("updated_at"))
@@ -291,7 +291,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
         status_map = {"queued": "queued", "running": "running", "succeeded": "succeeded", "dead": "failed"}
         ui_status = status_map.get(job.get("status"), "waiting")
         stage_id = "stage:discovery" if str(job.get("function_name", "")).startswith("discovery.") else "stage:provision"
-        worker_id = job.get("worker_id") or job.get("target_worker_id")
+        worker_id = job.get("worker_id") or job.get("target_worker_id") or next((event.get("detail", {}).get("worker_id") for event in reversed(history) if event.get("detail", {}).get("worker_id")), None)
         label = str(job.get("function_name", "Worker job")).split(".")[-1]
         add_node(f"job:{job_id}", label, "job", ui_status,
                  description=f"{job.get('function_name')}@{job.get('function_version')} · attempt {job.get('attempt')}/{job.get('max_attempts')}",
@@ -309,7 +309,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             worker_nodes[worker_id]["jobs"].append(job)
             worker_nodes[worker_id]["statuses"].append(job.get("status"))
             worker_nodes[worker_id]["logs"].extend(logs)
-            if job.get("worker_id"):
+            if job.get("worker_id") or history:
                 link(f"job:{job_id}", f"worker:{worker_id}", "worker")
             if stage_id in {node["id"] for node in nodes}:
                 link(stage_id, f"worker:{worker_id}", "worker")
