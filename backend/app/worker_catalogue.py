@@ -7,6 +7,8 @@ FUNCTIONS = [
     ("discovery.host_inventory", "1.0.0", "Collect read-only host CPU, memory, OS and disk inventory."),
     ("discovery.hypervisor_probe", "1.0.0", "Detect local KVM, libvirt, Proxmox and container runtime capabilities."),
     ("discovery.storage_network", "1.0.0", "Inspect mounted storage, network interfaces and counters."),
+    ("discovery.proxmox_inventory", "1.0.0", "Read the configured Proxmox cluster inventory, VM attachments, networks and storage pools."),
+    ("discovery.kubernetes_inventory", "1.0.0", "Read namespaced Kubernetes clusters, workloads, pods, services and persistent volume claims."),
     ("operations.metrics_snapshot", "1.0.0", "Collect a read-only CPU, memory, disk and network metrics snapshot."),
     ("network.tcp_probe", "1.0.0", "Probe explicitly supplied private IP addresses on allow-listed TCP ports."),
     ("compute.proxmox_deploy", "1.0.0", "Clone and start cloud-init template VMs on the configured local Proxmox node."),

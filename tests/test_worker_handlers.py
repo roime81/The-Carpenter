@@ -4,7 +4,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from handlers import execute, installed_capabilities, kubernetes_deploy
+from handlers import (execute, installed_capabilities, kubernetes_deploy,
+                      proxmox_inventory, kubernetes_inventory)
 from app.iac_engine import compile_iac_bundle
 
 
@@ -28,6 +29,7 @@ class WorkerCapabilityTests(unittest.TestCase):
         with patch.dict(os.environ, values, clear=True):
             capabilities = installed_capabilities()
         self.assertEqual(capabilities["compute.proxmox_deploy"], "1.0.0")
+        self.assertEqual(capabilities["discovery.proxmox_inventory"], "1.0.0")
 
     def test_kubernetes_and_gamgee_are_independent_worker_capabilities(self):
         with patch.dict(os.environ, {
@@ -36,6 +38,7 @@ class WorkerCapabilityTests(unittest.TestCase):
         }, clear=True):
             capabilities = installed_capabilities()
         self.assertEqual(capabilities["platform.kubernetes_deploy"], "1.0.0")
+        self.assertEqual(capabilities["discovery.kubernetes_inventory"], "1.0.0")
         self.assertNotIn("gamgee.bootstrap", capabilities)
 
         with patch.dict(os.environ, {
@@ -66,7 +69,10 @@ class WorkerCapabilityTests(unittest.TestCase):
             item["spec"] for item in bundle["resources"]
             if item["provider"] == "kubernetes"
         ]
-        with patch("handlers._kubernetes_apply", side_effect=[{"kind": "Deployment"}, {"kind": "Service"}]) as apply:
+        with patch.dict(os.environ, {
+            "CARPENTER_KUBERNETES_API_URL": "https://kube.example.test:6443",
+            "CARPENTER_KUBERNETES_TOKEN": "worker-token",
+        }, clear=True), patch("handlers._kubernetes_apply", side_effect=[{"kind": "Deployment"}, {"kind": "Service"}]) as apply:
             result = kubernetes_deploy({
                 "deployment_id": bundle["deployment_id"],
                 "iac_fingerprint": bundle["fingerprint"],
@@ -74,6 +80,121 @@ class WorkerCapabilityTests(unittest.TestCase):
             })
         self.assertEqual(result["execution_status"], "succeeded")
         self.assertEqual(apply.call_count, 2)
+
+    def test_proxmox_inventory_emits_hypervisor_vm_network_and_storage_graph(self):
+        inventory_rows = [
+            {"type": "node", "node": "pve-01", "status": "online", "maxcpu": 16, "maxmem": 68719476736},
+            {"type": "qemu", "node": "pve-01", "vmid": 101, "name": "web-01", "status": "running", "maxcpu": 4},
+            {"type": "storage", "node": "pve-01", "storage": "local-lvm", "status": "active", "total": 100000},
+        ]
+        with patch.dict(os.environ, {
+            "CARPENTER_PROXMOX_URL": "https://pve.example.test:8006",
+            "CARPENTER_PROXMOX_TOKEN_ID": "worker@pve!inventory",
+            "CARPENTER_PROXMOX_TOKEN_SECRET": "test-secret",
+        }, clear=True), patch("handlers._proxmox_request", side_effect=[
+            inventory_rows,
+            {"net0": "virtio=BC:24:11:22:33:44,bridge=vmbr0", "scsi0": "local-lvm:vm-101-disk-0,size=40G"},
+        ]) as request:
+            result = proxmox_inventory({})
+
+        resources = {(item["resource_type"], item["native_id"]): item for item in result["observed_resources"]}
+        self.assertIn(("hypervisor_node", "nodes/pve.example.test:8006/pve-01"), resources)
+        self.assertIn(("virtual_machine", "qemu/pve.example.test:8006/101"), resources)
+        self.assertIn(("network", "network/pve.example.test:8006/pve-01/vmbr0"), resources)
+        self.assertIn(("storage_volume", "volume/pve.example.test:8006/pve-01/local-lvm:vm-101-disk-0"), resources)
+        relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
+                     for item in result["observed_relationships"]}
+        self.assertIn(("nodes/pve.example.test:8006/pve-01", "qemu/pve.example.test:8006/101", "hosts"), relations)
+        self.assertIn(("qemu/pve.example.test:8006/101", "network/pve.example.test:8006/pve-01/vmbr0", "connected_to"), relations)
+        self.assertIn(("qemu/pve.example.test:8006/101", "volume/pve.example.test:8006/pve-01/local-lvm:vm-101-disk-0", "uses_storage"), relations)
+        self.assertEqual(request.call_count, 2)
+
+    def test_kubernetes_inventory_emits_namespaced_workloads_services_pods_and_claims(self):
+        responses = [
+            {"items": [{
+                "metadata": {"name": "web", "uid": "deployment-uid", "generation": 2},
+                "spec": {
+                    "replicas": 2,
+                    "selector": {"matchLabels": {"app": "web"}},
+                    "template": {"spec": {"containers": [{"image": "nginx:stable"}]}},
+                },
+                "status": {"readyReplicas": 2},
+            }]},
+            {"items": []},
+            {"items": []},
+            {"items": [{
+                "metadata": {"name": "web-replicaset", "ownerReferences": [{"kind": "Deployment", "name": "web"}]},
+                "spec": {
+                    "replicas": 2,
+                    "selector": {"matchLabels": {"app": "web"}},
+                    "template": {"spec": {"containers": [{"image": "nginx:stable"}]}},
+                },
+                "status": {"readyReplicas": 2},
+            }]},
+            {"items": [{
+                "metadata": {"name": "web"},
+                "spec": {
+                    "type": "ClusterIP", "clusterIP": "10.96.0.10",
+                    "selector": {"app": "web"},
+                    "ports": [{"port": 80, "targetPort": 8080}],
+                },
+            }]},
+            {"items": [{
+                "metadata": {"name": "web-data"},
+                "spec": {
+                    "storageClassName": "fast", "volumeName": "pv-web-data",
+                    "resources": {"requests": {"storage": "10Gi"}},
+                    "accessModes": ["ReadWriteOnce"],
+                },
+                "status": {"phase": "Bound"},
+            }]},
+            {"items": [{
+                "metadata": {"name": "pv-web-data"},
+                "spec": {
+                    "capacity": {"storage": "10Gi"},
+                    "storageClassName": "fast",
+                    "accessModes": ["ReadWriteOnce"],
+                    "persistentVolumeReclaimPolicy": "Retain",
+                },
+                "status": {"phase": "Bound"},
+            }]},
+            {"items": [{
+                "metadata": {"name": "web-pod-1", "labels": {"app": "web"}, "ownerReferences": [{"name": "web-replicaset"}]},
+                "spec": {"nodeName": "kube-node-01"},
+                "status": {
+                    "phase": "Running", "podIP": "10.1.1.10",
+                    "containerStatuses": [{"restartCount": 2}],
+                },
+            }]},
+        ]
+        with patch.dict(os.environ, {
+            "CARPENTER_KUBERNETES_API_URL": "https://kube.example.test:6443",
+            "CARPENTER_KUBERNETES_TOKEN": "worker-token",
+            "CARPENTER_KUBERNETES_NAMESPACE": "production",
+        }, clear=True), patch("handlers._kubernetes_read", side_effect=responses) as request:
+            result = kubernetes_inventory({})
+
+        resources = {(item["resource_type"], item["native_id"]): item for item in result["observed_resources"]}
+        self.assertIn(("cluster", "api/kube.example.test:6443"), resources)
+        self.assertIn(("namespace", "namespace/kube.example.test:6443/production"), resources)
+        self.assertEqual(resources[("workload", "deployments/kube.example.test:6443/production/web")]["status"], "ready")
+        self.assertIn(("workload", "replicasets/kube.example.test:6443/production/web-replicaset"), resources)
+        self.assertIn(("service", "services/kube.example.test:6443/production/web"), resources)
+        self.assertIn(("network", "service-ip/kube.example.test:6443/10.96.0.10"), resources)
+        self.assertIn(("storage_volume", "pvc/kube.example.test:6443/production/web-data"), resources)
+        self.assertIn(("storage_volume", "persistentvolume/kube.example.test:6443/pv-web-data"), resources)
+        self.assertIn(("workload_instance", "pods/kube.example.test:6443/production/web-pod-1"), resources)
+        self.assertIn(("network_interface", "pod-ip/kube.example.test:6443/10.1.1.10"), resources)
+        self.assertIn(("compute_host", "nodes/kube.example.test:6443/kube-node-01"), resources)
+        relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
+                     for item in result["observed_relationships"]}
+        self.assertIn(("services/kube.example.test:6443/production/web", "pods/kube.example.test:6443/production/web-pod-1", "routes_to"), relations)
+        self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "nodes/kube.example.test:6443/kube-node-01", "scheduled_on"), relations)
+        self.assertIn(("replicasets/kube.example.test:6443/production/web-replicaset", "deployments/kube.example.test:6443/production/web", "managed_by"), relations)
+        self.assertIn(("pods/kube.example.test:6443/production/web-pod-1", "replicasets/kube.example.test:6443/production/web-replicaset", "instance_of"), relations)
+        self.assertIn(("pvc/kube.example.test:6443/production/web-data", "persistentvolume/kube.example.test:6443/pv-web-data", "bound_to"), relations)
+        self.assertIn(("services/kube.example.test:6443/production/web", "service-ip/kube.example.test:6443/10.96.0.10", "exposes"), relations)
+        self.assertEqual(request.call_count, 8)
 
     def test_kubernetes_worker_rejects_tampered_generated_manifests(self):
         request = {

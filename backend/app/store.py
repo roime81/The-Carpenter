@@ -128,6 +128,50 @@ def initialise_store() -> None:
                 detail_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS twin_resources (
+                resource_id TEXT PRIMARY KEY,
+                resource_type TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                native_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                source TEXT NOT NULL,
+                worker_id TEXT,
+                deployment_id TEXT,
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(provider, native_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_twin_resources_type
+                ON twin_resources(resource_type, provider, status);
+            CREATE INDEX IF NOT EXISTS idx_twin_resources_worker
+                ON twin_resources(worker_id);
+            CREATE TABLE IF NOT EXISTS twin_relationships (
+                source_resource_id TEXT NOT NULL,
+                target_resource_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                source TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                PRIMARY KEY(source_resource_id, target_resource_id, relation)
+            );
+            CREATE INDEX IF NOT EXISTS idx_twin_relationships_target
+                ON twin_relationships(target_resource_id, relation);
+            CREATE TABLE IF NOT EXISTS twin_observations (
+                observation_id TEXT PRIMARY KEY,
+                resource_id TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                previous_status TEXT,
+                status TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                observed_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_twin_observations_resource
+                ON twin_observations(resource_id, observed_at);
             """
         )
         # Forward-compatible migration for databases created by earlier 0.2.0
@@ -530,3 +574,214 @@ def list_deployment_job_links(deployment_id: str) -> list[dict[str, Any]]:
             (deployment_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+# Infrastructure Digital Twin — observed resource inventory
+
+def _safe_twin_property_value(value: Any, depth: int = 0) -> Any:
+    """Defense-in-depth filter for all properties entering the durable twin store."""
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:1000]
+    if isinstance(value, list):
+        return [_safe_twin_property_value(item, depth + 1) for item in value[:100]]
+    if isinstance(value, dict):
+        result = {}
+        sensitive = ("token", "password", "secret", "credential", "private_key", "authorization")
+        for key, item in list(value.items())[:100]:
+            name = str(key)
+            lowered = name.casefold()
+            if any(marker in lowered for marker in sensitive):
+                continue
+            result[name[:120]] = _safe_twin_property_value(item, depth + 1)
+        return result
+    return str(value)[:500]
+
+
+def upsert_twin_resource(resource: dict[str, Any]) -> dict[str, Any]:
+    required = ("resource_id", "resource_type", "provider", "native_id", "name", "status", "source")
+    if any(not str(resource.get(key, "")).strip() for key in required):
+        raise ValueError("A digital-twin resource requires stable identity, type, provider, name, status and source.")
+    now = iso_now()
+    properties = resource.get("properties") or {}
+    if not isinstance(properties, dict):
+        raise ValueError("Digital-twin resource properties must be a JSON object.")
+    properties = _safe_twin_property_value(properties)
+    properties_json = json.dumps(properties, sort_keys=True, separators=(",", ":"), default=str)
+    change = None
+    previous_status = None
+    with _connect() as connection:
+        existing = connection.execute(
+            "SELECT * FROM twin_resources WHERE resource_id=? OR (provider=? AND native_id=?)",
+            (resource["resource_id"], resource["provider"], resource["native_id"]),
+        ).fetchone()
+        if existing:
+            previous_status = existing["status"]
+            changed = (
+                existing["resource_type"] != resource["resource_type"]
+                or existing["name"] != resource["name"]
+                or existing["status"] != resource["status"]
+                or existing["properties_json"] != properties_json
+                or existing["worker_id"] != resource.get("worker_id")
+                or existing["deployment_id"] != resource.get("deployment_id")
+            )
+            version = int(existing["version"]) + (1 if changed else 0)
+            connection.execute(
+                """UPDATE twin_resources SET resource_type=?, provider=?, native_id=?, name=?,
+                   status=?, source=?, worker_id=?, deployment_id=?, properties_json=?,
+                   last_seen=?, updated_at=?, version=? WHERE resource_id=?""",
+                (
+                    resource["resource_type"], resource["provider"], resource["native_id"],
+                    resource["name"][:200], resource["status"], resource["source"],
+                    resource.get("worker_id"), resource.get("deployment_id"), properties_json,
+                    now, now, version, existing["resource_id"],
+                ),
+            )
+            resource_id = existing["resource_id"]
+            change = "changed" if changed else None
+        else:
+            resource_id = resource["resource_id"]
+            version = 1
+            connection.execute(
+                """INSERT INTO twin_resources(
+                    resource_id, resource_type, provider, native_id, name, status, source,
+                    worker_id, deployment_id, properties_json, first_seen, last_seen,
+                    updated_at, version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    resource_id, resource["resource_type"], resource["provider"], resource["native_id"],
+                    resource["name"][:200], resource["status"], resource["source"],
+                    resource.get("worker_id"), resource.get("deployment_id"), properties_json,
+                    now, now, now, 1,
+                ),
+            )
+            change = "created"
+        if change:
+            snapshot = {
+                "resource_id": resource_id, "resource_type": resource["resource_type"],
+                "provider": resource["provider"], "native_id": resource["native_id"],
+                "name": resource["name"][:200], "status": resource["status"],
+                "source": resource["source"], "worker_id": resource.get("worker_id"),
+                "deployment_id": resource.get("deployment_id"), "properties": properties,
+                "version": version,
+            }
+            connection.execute(
+                """INSERT INTO twin_observations(
+                    observation_id, resource_id, change_type, previous_status, status,
+                    snapshot_json, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (str(uuid.uuid4()), resource_id, change, previous_status,
+                 resource["status"], json.dumps(snapshot, sort_keys=True, default=str), now),
+            )
+    if change:
+        record_event("twin.resource." + change, resource_id, {
+            "resource_type": resource["resource_type"], "provider": resource["provider"],
+            "name": resource["name"][:200], "status": resource["status"],
+            "version": version, "source": resource["source"],
+        })
+    return get_twin_resource(resource_id)  # type: ignore[return-value]
+
+
+def get_twin_resource(resource_id: str) -> dict[str, Any] | None:
+    with _connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM twin_resources WHERE resource_id=?", (resource_id,)
+        ).fetchone()
+    if not row:
+        return None
+    item = dict(row)
+    item["properties"] = json.loads(item.pop("properties_json"))
+    return item
+
+
+def list_twin_resources(limit: int = 500) -> list[dict[str, Any]]:
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM twin_resources ORDER BY resource_type, provider, name LIMIT ?",
+            (max(1, min(limit, 2000)),),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["properties"] = json.loads(item.pop("properties_json"))
+        result.append(item)
+    return result
+
+
+def upsert_twin_relationship(
+    source_resource_id: str, target_resource_id: str, relation: str,
+    source: str = "discovery", metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not source_resource_id or not target_resource_id or source_resource_id == target_resource_id:
+        raise ValueError("Digital-twin relationships require two distinct resource IDs.")
+    if not relation or len(relation) > 80:
+        raise ValueError("A digital-twin relationship type is required.")
+    now = iso_now()
+    metadata_json = json.dumps(metadata or {}, sort_keys=True, separators=(",", ":"), default=str)
+    with _connect() as connection:
+        existing = connection.execute(
+            """SELECT * FROM twin_relationships
+               WHERE source_resource_id=? AND target_resource_id=? AND relation=?""",
+            (source_resource_id, target_resource_id, relation),
+        ).fetchone()
+        if existing:
+            connection.execute(
+                """UPDATE twin_relationships SET source=?, metadata_json=?, last_seen=?
+                   WHERE source_resource_id=? AND target_resource_id=? AND relation=?""",
+                (source, metadata_json, now, source_resource_id, target_resource_id, relation),
+            )
+            created = False
+        else:
+            connection.execute(
+                """INSERT INTO twin_relationships(
+                    source_resource_id, target_resource_id, relation, source,
+                    metadata_json, first_seen, last_seen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (source_resource_id, target_resource_id, relation, source,
+                 metadata_json, now, now),
+            )
+            created = True
+    if created:
+        record_event("twin.relationship.created", source_resource_id, {
+            "target_resource_id": target_resource_id, "relation": relation, "source": source,
+        })
+    return {
+        "source_resource_id": source_resource_id,
+        "target_resource_id": target_resource_id,
+        "relation": relation, "source": source,
+        "metadata": metadata or {}, "first_seen": now, "last_seen": now,
+    }
+
+
+def list_twin_relationships(limit: int = 2000) -> list[dict[str, Any]]:
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT * FROM twin_relationships
+               ORDER BY relation, source_resource_id, target_resource_id LIMIT ?""",
+            (max(1, min(limit, 10000)),),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = json.loads(item.pop("metadata_json"))
+        result.append(item)
+    return result
+
+
+def list_twin_observations(resource_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT observation_id, resource_id, change_type, previous_status,
+               status, snapshot_json, observed_at FROM twin_observations
+               WHERE resource_id=? ORDER BY observed_at DESC LIMIT ?""",
+            (resource_id, max(1, min(limit, 500))),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["snapshot"] = json.loads(item.pop("snapshot_json"))
+        result.append(item)
+    return list(reversed(result))

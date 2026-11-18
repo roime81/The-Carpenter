@@ -19,6 +19,7 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 
 ## Contents
 
+- [Infrastructure Digital Twin](#infrastructure-digital-twin-070)
 - [Principles and architecture](#principles-and-architecture)
 - [Implementation status](#implementation-status)
 - [Quick start](#quick-start)
@@ -31,8 +32,71 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 - [Tests](#tests)
 - [Security and production readiness](#security-and-production-readiness)
 - [Technical documentation](#technical-documentation)
+- [Infrastructure Digital Twin guide](docs/INFRASTRUCTURE_DIGITAL_TWIN.md)
 
 ---
+
+
+## Infrastructure Digital Twin (0.7.0)
+
+The white living canvas is now an **Infrastructure Digital Twin** as well as an execution graph. Its organic node mesh is inspired by `docs/assets/8805.jpg`: varied node sizes, fine blue topology strands and stronger edges for actual ownership, hosting, storage, network and service relationships.
+
+The canvas combines two related but distinct views in one network:
+
+- **Execution graph:** intent, discovery, workbook, playbook, IaC, approval, FaaS jobs and worker activity for the signed-in conversation.
+- **Observed infrastructure topology:** shared installation-level cloud resources discovered from enrolled workers and provider APIs. It is not generated from planned IaC and does not imply that a planned resource already exists.
+
+### Digital Twin resource model
+
+Every observed resource has a deterministic provider/native identity and a typed record:
+
+- **Compute:** Carpenter-managed hosts, Proxmox nodes, VMs/LXC guests and Kubernetes nodes observed through scheduled pods.
+- **Virtualisation:** Proxmox/KVM/libvirt capability and hypervisor relationships.
+- **Kubernetes:** cluster endpoints, namespaces, Deployments, StatefulSets, DaemonSets, ReplicaSets, Pods, Services, pod IP interfaces, PVCs and visible PVs.
+- **Network:** private host subnets/interfaces, Proxmox bridges, Kubernetes service ClusterIPs and pod IP interfaces.
+- **Storage:** host-mounted filesystems, Proxmox storage pools and attached VM volumes, Kubernetes PVCs and visible bound PVs.
+- **Services and dependencies:** service-to-workload routing, pod-to-ReplicaSet ownership, ReplicaSet-to-controller ownership, pod scheduling, VM hosting, VM network attachments and storage bindings.
+
+Provider identities are scoped by the configured API endpoint so that similarly named VM IDs, Kubernetes namespaces or services on different clusters do not collapse into one object. The same resource keeps its identity as its observed properties and status change.
+
+### How the twin is populated
+
+1. **Worker heartbeat:** creates or updates the actual enrolled host, CPU/memory/disk facts, private addresses and last-seen status.
+2. **Local read-only discovery:** records detected hypervisor/runtime capabilities, mounted filesystems, network interfaces and private subnet relationships.
+3. **Provider inventory discovery:** workers with Proxmox credentials can read the Proxmox cluster resource list and selected VM configurations; workers with Kubernetes credentials can read namespaced workload/service/pod/PVC data visible to their service account and associated PVs where permission is granted.
+4. **Successful provisioning:** after a provider function returns successfully, the control plane imports the provider's observed result and relationship set. A VM, service or volume appears as an observed object only after the worker reports it.
+5. **Observation history:** each resource creation or material change increments its version and stores a timestamped observation snapshot. The node inspector loads that history on demand.
+
+### Refresh and API
+
+Operators and admins can select **Refresh topology** in the canvas. It queues read-only inventory work on online workers that advertise the matching provider capability. The button reports that work was queued; the graph changes only when workers return observations.
+
+- `GET /api/v1/twin/snapshot` — shared observed resources and relationships for the current authenticated console.
+- `POST /api/v1/twin/refresh` — queue a topology refresh; operator/admin role and CSRF header required.
+- `GET /api/v1/twin/resources/{resource_id}/history` — timestamped observations and version history for one resource.
+- `GET /api/v1/canvas/snapshot` — combined execution and infrastructure graph.
+- `GET /api/v1/canvas/stream` — authenticated SSE snapshots refreshed from durable records.
+- `GET /api/v1/canvas/artifacts/blueprint` and `.../playbook` — generated work-product previews.
+
+### Status and trust boundaries
+
+A resource's status means what its provider/worker actually reported, not what the model intended. Carpenter-managed host online/offline state comes from heartbeat freshness. Proxmox VM state comes from the provider inventory/current-status API. Kubernetes workload and pod state comes from returned API status; service/PVC/PV state reflects the fields visible to the worker identity.
+
+A provider inventory that returns usable objects alongside access/read warnings is shown as **Partial** in the execution graph, with its warning count exposed in the job inspector. This is deliberately distinct from both a complete discovery result and a failed worker job.
+
+The digital-twin inventory is **installation-wide and shared by authenticated console users in this release**. The workflow and conversation job history remain session-scoped. Worker property ingestion applies a conservative property allow-list and excludes credential-like fields. The topology API does not return provider credentials or raw FaaS payloads.
+
+### Current coverage and deliberate limits
+
+- Proxmox inventory is cluster-resource based, with configuration reads for a bounded number of QEMU guests to discover bridges and attached volumes.
+- Kubernetes inventory is namespace-scoped (configured by `CARPENTER_KUBERNETES_NAMESPACE`, defaulting to `default`) and constrained by the service account's RBAC permissions. Kubernetes Node objects are currently inferred from pod scheduling; a full cluster-wide node/taint/condition inventory is a follow-on.
+- Local host interfaces/subnets and mounted filesystems are read-only observations. They do not imply that The Carpenter manages the host's network or storage configuration.
+- GAMGEE inventory is imported only when its signed installer explicitly returns the documented `observed_resources` and `observed_relationships` contract.
+- AWS, Azure and GCP provider inventories are not implemented in this increment. The resource model is provider-neutral so those adapters can be added without changing the graph contract.
+- Resource versions and observation history are persisted, but this increment does not yet infer deletion from absence, run scheduled drift detection, or perform desired-versus-observed remediation. Missing resources are not automatically marked deleted because inventory may be partial or RBAC-restricted.
+- SSE is a 1.5-second polling-backed projection over SQLite, not a broker-backed push bus. It reflects worker results when those results are persisted.
+
+The resource, relationship and observation records are stored in the Carpenter SQLite database for this release. They are separate from the saved IaC plan: desired state remains in the deployment plan; observed state belongs to the Digital Twin.
 
 ## Principles and architecture
 
@@ -477,6 +541,7 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Distributed FaaS](docs/DISTRIBUTED-FAAS.md)
 - [Infrastructure Discovery](docs/DISCOVERY.md)
+- [Infrastructure Digital Twin](docs/INFRASTRUCTURE_DIGITAL_TWIN.md)
 - [Resource Engine](docs/RESOURCE-ENGINE.md)
 - [Dual Cloud Deployment](docs/DEPLOYMENT.md)
 - [Autonomous Operations](docs/OPERATIONS.md)
@@ -493,8 +558,10 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 │   ├── adapters/              # Provider adapter references
 │   ├── runtime/               # Local Python function runtime
 │   ├── main.py                # Python control-plane API and chat action routing
+│   ├── infrastructure_twin.py # Typed observed-resource inventory and relationship model
+│   ├── canvas_runtime.py      # Live graph projection and artifact previews
 │   ├── web_auth.py             # Signed browser sessions, role credentials and CSRF validation
-│   ├── store.py               # Queue, worker, inventory and deployment store
+│   ├── store.py               # Queue, worker, inventory, deployment and twin persistence
 │   ├── iac_engine.py          # Deterministic desired-state to IaC compiler
 │   ├── deployment_engine.py   # AI plan and distributed apply coordinator
 │   ├── resource_engine.py     # Placement and forecasting

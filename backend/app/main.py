@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import re
 import secrets
 import uuid
@@ -7,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -33,12 +36,14 @@ from app.deployment_engine import DeploymentEngine
 from app.iac_engine import validate_iac_bundle
 from app.web_auth import COOKIE_NAME, SESSION_TTL_SECONDS, issue_session, read_session, verify_csrf
 from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
+from app.canvas_runtime import build_canvas_snapshot, get_canvas_artifact
+from app import infrastructure_twin
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
     title="The Carpenter",
     description="An AI Cloud Deployment Agent and AI IaC Agent that discovers, compiles, validates and provisions infrastructure through distributed Python workers.",
-    version="0.4.0",
+    version="0.7.0",
 )
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -149,6 +154,13 @@ def _execute_approved_plan(deployment_id: str, actor: str, source: str) -> dict[
             raise RuntimeError("The deployment compiler produced no executable provider jobs.")
         for job in queued_jobs:
             link_deployment_job(deployment_id, job["job_id"], job["component"])
+            store.record_event("faas.job.enqueued", job["job_id"], {
+                "deployment_id": deployment_id,
+                "function_name": job.get("function_name"),
+                "function_version": job.get("function_version"),
+                "worker_id": job.get("target_worker_id"),
+                "component": job.get("component"),
+            })
         store.record_event("deployment.execution.queued", deployment_id, {
             "job_ids": [job["job_id"] for job in queued_jobs],
             "components": [job["component"] for job in queued_jobs],
@@ -281,7 +293,7 @@ def _handle_chat_deployment_command(
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "the-carpenter", "version": "0.4.0"}
+    return {"status": "ok", "service": "the-carpenter", "version": "0.7.0"}
 
 
 @app.get("/api/v1/functions")
@@ -311,7 +323,14 @@ def agent_heartbeat(
     x_agent_token: str = Header(default="", alias="X-Agent-Token"),
 ) -> dict[str, object]:
     _require_agent(x_agent_token)
-    store.upsert_agent(heartbeat.model_dump(mode="json"))
+    inventory = heartbeat.model_dump(mode="json")
+    store.upsert_agent(inventory)
+    try:
+        infrastructure_twin.observe_worker_heartbeat(store.get_agent(heartbeat.node_id) or inventory)
+    except Exception as exc:
+        store.record_event("twin.observation.failed", heartbeat.node_id, {
+            "source": "agent_heartbeat", "error_type": type(exc).__name__,
+        })
     return {"accepted": True, "node_id": heartbeat.node_id}
 
 
@@ -365,6 +384,16 @@ def worker_claim(
     if not agent or not agent.get("online"):
         raise HTTPException(status_code=409, detail="Worker has no fresh heartbeat.")
     job = store.claim_job(worker_id, settings.worker_lease_seconds)
+    if job:
+        payload = job.get("payload", {})
+        store.record_event("faas.job.claimed", job["job_id"], {
+            "worker_id": worker_id,
+            "function_name": job.get("function_name"),
+            "function_version": job.get("function_version"),
+            "attempt": job.get("attempt"),
+            "deployment_id": payload.get("deployment_id"),
+            "session_id": payload.get("session_id"),
+        })
     return job
 
 
@@ -382,9 +411,33 @@ def worker_complete(
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
     if job and job["function_name"].startswith("discovery."):
         store.merge_agent_discovery(worker_id, job["function_name"], request.result)
-    store.record_event("faas.job.succeeded", job_id, {"worker_id": worker_id})
-    if job and job.get("payload", {}).get("deployment_id"):
-        reconcile_deployment_status(job["payload"]["deployment_id"])
+        try:
+            infrastructure_twin.observe_discovery_result(worker_id, job["function_name"], request.result, {**job, "worker_id": worker_id})
+        except Exception as exc:
+            store.record_event("twin.observation.failed", worker_id, {
+                "source": job["function_name"], "error_type": type(exc).__name__,
+            })
+    payload = (job or {}).get("payload", {})
+    store.record_event("faas.job.succeeded", job_id, {
+        "worker_id": worker_id,
+        "function_name": (job or {}).get("function_name"),
+        "function_version": (job or {}).get("function_version"),
+        "deployment_id": payload.get("deployment_id"),
+        "session_id": payload.get("session_id"),
+        "result_keys": sorted(request.result.keys())[:30],
+    })
+    if payload.get("deployment_id"):
+        reconcile_deployment_status(payload["deployment_id"])
+    if job and not str(job.get("function_name", "")).startswith("discovery."):
+        try:
+            infrastructure_twin.observe_provider_result(
+                {**job, "worker_id": worker_id}, request.result
+            )
+        except Exception as exc:
+            store.record_event("twin.observation.failed", job_id, {
+                "source": job.get("function_name"), "error_type": type(exc).__name__,
+                "deployment_id": payload.get("deployment_id"),
+            })
     return {"accepted": True}
 
 
@@ -396,13 +449,23 @@ def worker_fail(
     x_agent_token: str = Header(default="", alias="X-Agent-Token"),
 ) -> dict[str, bool]:
     _require_agent(x_agent_token)
+    job = store.get_job(job_id)
     accepted = store.fail_job(job_id, worker_id, request.lease_token, request.error)
     if not accepted:
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
-    store.record_event("faas.job.failed", job_id, {"worker_id": worker_id, "error": request.error})
-    job = store.get_job(job_id)
-    if job and job.get("payload", {}).get("deployment_id"):
-        reconcile_deployment_status(job["payload"]["deployment_id"])
+    updated_job = store.get_job(job_id) or job or {}
+    payload = updated_job.get("payload", {})
+    store.record_event("faas.job.failed", job_id, {
+        "worker_id": worker_id,
+        "function_name": updated_job.get("function_name"),
+        "function_version": updated_job.get("function_version"),
+        "deployment_id": payload.get("deployment_id"),
+        "session_id": payload.get("session_id"),
+        "status": updated_job.get("status"),
+        "error": request.error[:1200],
+    })
+    if payload.get("deployment_id"):
+        reconcile_deployment_status(payload["deployment_id"])
     return {"accepted": True}
 
 
@@ -730,3 +793,145 @@ def prompt(
     store.add_message(session_id, "assistant", answer)
     response = RedirectResponse("/", status_code=303)
     return response
+
+
+@app.get("/api/v1/canvas/snapshot")
+def canvas_snapshot(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    return build_canvas_snapshot(_conversation_id(identity))
+
+
+@app.get("/api/v1/canvas/artifacts/{kind}")
+def canvas_artifact(kind: str, request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    artifact = get_canvas_artifact(_conversation_id(identity), kind)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="The requested canvas artifact is not available in this session.")
+    return artifact
+
+
+
+
+@app.post("/api/v1/twin/refresh")
+def refresh_digital_twin(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    if identity.get("role") not in ("operator", "admin"):
+        raise HTTPException(status_code=403, detail="Topology refresh requires operator or admin access.")
+    if not verify_csrf(identity, request.headers.get("X-CSRF-Token", "")):
+        raise HTTPException(status_code=403, detail="The CSRF token is invalid.")
+
+    session_id = _conversation_id(identity)
+    refresh_id = str(uuid.uuid4())
+    functions = (
+        "discovery.host_inventory",
+        "discovery.hypervisor_probe",
+        "discovery.storage_network",
+        "discovery.proxmox_inventory",
+        "discovery.kubernetes_inventory",
+    )
+    jobs = []
+    for worker in store.list_agents(online_only=True):
+        capabilities = worker.get("capabilities", {})
+        for function_name in functions:
+            if capabilities.get(function_name) != "1.0.0":
+                continue
+            job = store.enqueue_job(
+                function_name, "1.0.0",
+                {
+                    "session_id": session_id,
+                    "canvas_stage": "discovery",
+                    "worker_id": worker["node_id"],
+                    "refresh_id": refresh_id,
+                },
+                max_attempts=2, priority=20,
+                idempotency_key=f"twin-refresh:{refresh_id}:{worker['node_id']}:{function_name}",
+                target_worker_id=worker["node_id"],
+            )
+            jobs.append(job)
+            store.record_event("faas.job.enqueued", job["job_id"], {
+                "session_id": session_id,
+                "refresh_id": refresh_id,
+                "worker_id": worker["node_id"],
+                "function_name": function_name,
+                "function_version": "1.0.0",
+                "purpose": "digital_twin_refresh",
+            })
+    store.record_event("twin.refresh.queued", refresh_id, {
+        "session_id": session_id,
+        "worker_count": len({job.get("target_worker_id") for job in jobs}),
+        "job_ids": [job["job_id"] for job in jobs],
+    })
+    return {
+        "refresh_id": refresh_id,
+        "status": "queued" if jobs else "no_eligible_workers",
+        "worker_count": len({job.get("target_worker_id") for job in jobs}),
+        "job_count": len(jobs),
+        "jobs": [
+            {"job_id": job["job_id"], "function_name": job["function_name"],
+             "target_worker_id": job.get("target_worker_id"), "status": job["status"]}
+            for job in jobs
+        ],
+    }
+
+
+@app.get("/api/v1/twin/snapshot")
+def digital_twin_snapshot(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    return infrastructure_twin.list_twin_snapshot()
+
+
+@app.get("/api/v1/twin/resources/{resource_id}/history")
+def digital_twin_resource_history(
+    resource_id: str,
+    request: Request,
+    limit: int = 100,
+) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    resource = store.get_twin_resource(resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Digital-twin resource not found.")
+    return {
+        "resource": resource,
+        "observations": store.list_twin_observations(resource_id, limit),
+    }
+
+
+@app.get("/api/v1/canvas/stream")
+async def canvas_stream(request: Request) -> StreamingResponse:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    session_id = _conversation_id(identity)
+
+    async def stream_snapshots():
+        previous_digest = None
+        while not await request.is_disconnected():
+            snapshot = build_canvas_snapshot(session_id)
+            payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), default=str)
+            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            if digest != previous_digest:
+                yield f"id: {digest}\nevent: snapshot\ndata: {payload}\n\n"
+                previous_digest = digest
+            else:
+                yield ": heartbeat\n\n"
+            await asyncio.sleep(1.5)
+
+    return StreamingResponse(
+        stream_snapshots(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

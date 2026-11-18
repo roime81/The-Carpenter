@@ -10,12 +10,17 @@ from app.deployment_store import create as create_deployment_record
 from app.functions import register_builtin_functions
 from app.llm import ModelGateway
 from app.runtime.faas import FunctionRuntime
+from app.canvas_runtime import attach_canvas_artifacts
 
 
 DISCOVERY_FUNCTIONS = (
     "discovery.host_inventory",
     "discovery.hypervisor_probe",
     "discovery.storage_network",
+)
+PROVIDER_DISCOVERY_FUNCTIONS = (
+    "discovery.proxmox_inventory",
+    "discovery.kubernetes_inventory",
 )
 
 
@@ -94,21 +99,45 @@ class CarpenterOrchestrator:
         return None
 
     @staticmethod
-    def _queue_new_node_discovery(state: dict[str, Any], agents: list[dict[str, Any]]) -> None:
-        discovered = set(state.get("discovery_nodes", []))
-        new_nodes = [agent for agent in agents if agent["node_id"] not in discovered]
-        for agent in new_nodes:
-            for function_name in DISCOVERY_FUNCTIONS:
-                store.enqueue_job(
+    def _queue_new_node_discovery(
+        session_id: str, state: dict[str, Any], agents: list[dict[str, Any]]
+    ) -> None:
+        scheduled = set(state.get("discovery_function_keys", []))
+        discovered_nodes = set(state.get("discovery_nodes", []))
+        for agent in agents:
+            node_id = agent["node_id"]
+            capabilities = agent.get("capabilities", {})
+            functions = list(DISCOVERY_FUNCTIONS)
+            functions.extend(
+                name for name in PROVIDER_DISCOVERY_FUNCTIONS
+                if capabilities.get(name) == "1.0.0"
+            )
+            for function_name in functions:
+                key = f"{node_id}:{function_name}"
+                if key in scheduled:
+                    continue
+                job = store.enqueue_job(
                     function_name,
                     "1.0.0",
-                    {},
+                    {
+                        "session_id": session_id,
+                        "canvas_stage": "discovery",
+                        "worker_id": node_id,
+                    },
                     max_attempts=3,
-                    idempotency_key=f"prompt-discovery-{agent['node_id']}-{function_name}-{uuid.uuid4()}",
-                    target_worker_id=agent["node_id"],
+                    idempotency_key=f"prompt-discovery-{session_id}-{node_id}-{function_name}",
+                    target_worker_id=node_id,
                 )
-            discovered.add(agent["node_id"])
-        state["discovery_nodes"] = sorted(discovered)
+                store.record_event("faas.job.enqueued", job["job_id"], {
+                    "session_id": session_id,
+                    "function_name": function_name,
+                    "function_version": "1.0.0",
+                    "worker_id": node_id,
+                })
+                scheduled.add(key)
+            discovered_nodes.add(node_id)
+        state["discovery_nodes"] = sorted(discovered_nodes)
+        state["discovery_function_keys"] = sorted(scheduled)
 
     def _create_plan(self, session_id: str, state: dict[str, Any], agents: list[dict[str, Any]]) -> str:
         request = {
@@ -125,6 +154,8 @@ class CarpenterOrchestrator:
             "container_port": state.get("container_port", 8080),
         }
         plan = DeploymentEngine().build_plan(request, agents)
+        plan["canvas_session_id"] = session_id
+        plan = attach_canvas_artifacts(plan, state.get("last_prompt", ""))
         record = create_deployment_record(
             request["destination"], request["service_model"], plan
         )
@@ -202,6 +233,7 @@ class CarpenterOrchestrator:
 
     def respond(self, session_id: str, prompt: str) -> str:
         state = store.get_state(session_id)
+        state["last_prompt"] = prompt[:8000]
         agents = store.list_agents(online_only=True)
         phase = state.get("phase", "connect")
         slots = self.brain.extract_slots(prompt)
@@ -252,7 +284,7 @@ class CarpenterOrchestrator:
             )
 
         # Automatically queue detailed read-only discovery for any newly online node.
-        self._queue_new_node_discovery(state, agents)
+        self._queue_new_node_discovery(session_id, state, agents)
 
         if phase in ("connect", "await_vm_count"):
             if not state.get("vm_count"):
