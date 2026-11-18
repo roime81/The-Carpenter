@@ -96,6 +96,12 @@ The digital-twin inventory is **installation-wide and shared by authenticated co
 - Resource versions and observation history are persisted, but this increment does not yet infer deletion from absence, run scheduled drift detection, or perform desired-versus-observed remediation. Missing resources are not automatically marked deleted because inventory may be partial or RBAC-restricted.
 - SSE is a 1.5-second polling-backed projection over SQLite, not a broker-backed push bus. It reflects worker results when those results are persisted.
 
+### Future pipeline: Infrastructure Digital Twin 2.0
+
+Digital Twin 2.0 is reserved in the engineering roadmap; it is **not part of the implemented 0.7.0 release**. The planned programme is staged: broaden AWS/Azure/GCP and cluster-wide Kubernetes inventory; add complete-scope scheduled reconciliation and safe tombstones; build desired-versus-observed drift intelligence and policy evaluation; then introduce human-approved remediation, verification and rollback. Scale, tenant isolation and historical topology snapshots follow those safety foundations.
+
+See [Infrastructure Digital Twin 2.0 roadmap](docs/ROADMAP.md#6-infrastructure-digital-twin-20--planned-pipeline). Automated remediation is explicitly out of scope until its ownership, approval, audit and recovery exit criteria are met.
+
 The resource, relationship and observation records are stored in the Carpenter SQLite database for this release. They are separate from the saved IaC plan: desired state remains in the deployment plan; observed state belongs to the Digital Twin.
 
 ## Principles and architecture
