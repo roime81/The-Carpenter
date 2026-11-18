@@ -25,7 +25,7 @@ SAFE_PROPERTY_KEYS = {
     "vmid", "action", "state", "status", "vcpu", "cores", "memory_mb",
     "memory_bytes", "disk_bytes", "native_id", "resource_version", "uid",
     "generation", "namespace", "image", "replicas", "ready_replicas", "selector",
-    "service_type", "port", "target_port", "protocol", "cluster_endpoint",
+    "service_type", "port", "target_port", "protocol", "cluster_endpoint", "cluster_ip", "api_server",
     "node", "provider", "name", "role", "version", "observed_at",
 }
 
@@ -119,9 +119,9 @@ def observe_worker_heartbeat(inventory: dict[str, Any]) -> str:
             "disk_free_bytes", "ipv4_addresses", "failure_domain",
         ) if inventory.get(key) is not None
     }
+    props["ipv4_addresses"] = [address for address in (inventory.get("ipv4_addresses") or []) if _is_private_address(str(address))][:24]
     props["capabilities"] = sorted((inventory.get("capabilities") or {}).keys())[:50]
     props["online"] = True
-    props["last_seen"] = inventory.get("last_seen") or store.iso_now()
     host_id = _upsert(
         "carpenter-agent", node_id, "compute_host",
         str(inventory.get("hostname") or node_id), "online",
@@ -236,6 +236,10 @@ def _observe_canonical_resources(
             worker_id=worker_id or None, deployment_id=deployment_id or None,
         )
         created[(provider, native_id)] = rid
+        if provider == "proxmox" and resource_type == "hypervisor_node" and worker_id:
+            agent_id = resource_id("carpenter-agent", worker_id)
+            if store.get_twin_resource(agent_id):
+                _link(agent_id, rid, "manages", source)
     for relation in (result.get("observed_relationships") or [])[:500]:
         if not isinstance(relation, dict):
             continue
