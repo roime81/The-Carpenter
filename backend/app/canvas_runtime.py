@@ -46,7 +46,7 @@ def _markdown_blueprint(plan: dict[str, Any], prompt: str) -> str:
     placements = placement.get("placements", []) if isinstance(placement, dict) else []
     if placements:
         lines.extend(
-            f"- {item.get('vm_name', item.get('name', 'Instance'))}: worker {item.get('node_id', item.get('worker_id', 'unassigned'))}"
+            f"- {item.get('vm_name', item.get('name', 'Instance'))}: worker {item.get('host_id', item.get('node_id', item.get('worker_id', 'unassigned')))}"
             for item in placements
         )
     else:
