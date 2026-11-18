@@ -82,6 +82,8 @@ Operators and admins can select **Refresh topology** in the canvas. It queues re
 
 A resource's status means what its provider/worker actually reported, not what the model intended. Carpenter-managed host online/offline state comes from heartbeat freshness. Proxmox VM state comes from the provider inventory/current-status API. Kubernetes workload and pod state comes from returned API status; service/PVC/PV state reflects the fields visible to the worker identity.
 
+A provider inventory that returns usable objects alongside access/read warnings is shown as **Partial** in the execution graph, with its warning count exposed in the job inspector. This is deliberately distinct from both a complete discovery result and a failed worker job.
+
 The digital-twin inventory is **installation-wide and shared by authenticated console users in this release**. The workflow and conversation job history remain session-scoped. Worker property ingestion applies a conservative property allow-list and excludes credential-like fields. The topology API does not return provider credentials or raw FaaS payloads.
 
 ### Current coverage and deliberate limits
