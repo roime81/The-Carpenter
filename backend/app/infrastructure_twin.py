@@ -330,7 +330,7 @@ def list_twin_snapshot(limit: int = 500) -> dict[str, Any]:
     ]
     agents = {item["node_id"]: item for item in store.list_agents(online_only=False)}
     for resource in resources:
-        if resource["resource_type"] == "compute_host" and resource.get("worker_id"):
+        if resource["resource_type"] == "compute_host" and resource.get("provider") == "carpenter-agent" and resource.get("worker_id"):
             agent = agents.get(resource["worker_id"])
             resource["status"] = "online" if agent and agent.get("online") else "offline"
             if agent:
