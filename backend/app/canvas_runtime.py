@@ -342,12 +342,6 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
     digital_twin = infrastructure_twin.list_twin_snapshot(500)
     for resource in digital_twin["resources"]:
         rid = resource["resource_id"]
-        history = store.list_twin_observations(rid, 20)
-        logs = [{
-            "at": item.get("observed_at"),
-            "event_type": "twin.resource." + str(item.get("change_type", "observed")),
-            "message": f"{item.get('change_type', 'observed').title()} · {resource.get('resource_type')} · {item.get('status')}",
-        } for item in history]
         add_node(
             rid, resource.get("name") or resource.get("native_id"), "topology",
             resource.get("status", "observed"),
@@ -362,7 +356,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             source=resource.get("source"),
             created_at=resource.get("first_seen"),
             updated_at=resource.get("last_seen"),
-            logs=logs,
+            logs=[],
             resource_id=rid,
         )
     for relation in digital_twin["relationships"]:
