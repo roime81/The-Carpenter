@@ -86,7 +86,7 @@ def _playbook_steps(plan: dict[str, Any], deployment: dict[str, Any] | None = No
         provision_status = "running" if any(job.get("status") == "running" for job in jobs) else "queued"
     else:
         provision_status = "waiting"
-    approval_status = "succeeded" if status in {"approved", "executing", "succeeded"} else ("failed" if status == "failed" and plan.get("approval_failed") else "waiting")
+    approval_status = "succeeded" if status in {"approved", "executing", "succeeded"} else ("succeeded" if status == "failed" and plan.get("ready_to_execute_after_approval") else "waiting")
     return [
         {"id": "discover", "title": "Discover enrolled infrastructure", "status": "succeeded" if plan.get("host_count", 0) else "waiting", "detail": f"Assessed {plan.get('host_count', 0)} online host(s) and their advertised capabilities."},
         {"id": "design", "title": "Create infrastructure blueprint", "status": "succeeded", "detail": "Stored the requested outcome, target topology, placement and provider decisions."},
@@ -221,7 +221,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             return "succeeded"
         if statuses:
             return "queued"
-        return "running" if has_intent else "idle"
+        return "waiting" if has_intent else "idle"
 
     if has_intent or discovery_jobs:
         add_node("stage:discovery", "Discovery", "stage", aggregate_status(discovery_jobs),
@@ -274,7 +274,9 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
 
         for resource in (plan.get("iac_bundle") or {}).get("resources", [])[:80]:
             resource_id = str(resource.get("resource_id", "resource"))
-            add_node(f"resource:{resource_id}", str(resource.get("name") or resource_id), "resource", "succeeded",
+            related_jobs = [job for job in jobs if ((job.get("payload") or {}).get("iac_resource") or {}).get("resource_id") == resource_id]
+            resource_status = aggregate_status(related_jobs) if related_jobs else ("succeeded" if dep_status == "succeeded" else ("failed" if dep_status == "failed" else "waiting"))
+            add_node(f"resource:{resource_id}", str(resource.get("name") or resource_id), "resource", resource_status,
                      description=f"{resource.get('provider', 'Provider')} · {resource.get('kind', 'resource')}",
                      resource_id=resource_id, worker_id=resource.get("worker_id"), parent_id="stage:iac")
             link("stage:iac", f"resource:{resource_id}", "resource")
