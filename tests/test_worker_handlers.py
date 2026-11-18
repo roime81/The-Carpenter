@@ -101,9 +101,9 @@ class WorkerCapabilityTests(unittest.TestCase):
         self.assertIn(("storage_volume", "volume/pve.example.test:8006/pve-01/local-lvm:vm-101-disk-0"), resources)
         relations = {(item["source_native_id"], item["target_native_id"], item["relation"])
                      for item in result["observed_relationships"]}
-        self.assertIn(("nodes/pve-01", "qemu/101", "hosts"), relations)
-        self.assertIn(("qemu/101", "network/pve-01/vmbr0", "connected_to"), relations)
-        self.assertIn(("qemu/101", "volume/pve-01/local-lvm:vm-101-disk-0", "uses_storage"), relations)
+        self.assertIn(("nodes/pve.example.test:8006/pve-01", "qemu/pve.example.test:8006/101", "hosts"), relations)
+        self.assertIn(("qemu/pve.example.test:8006/101", "network/pve.example.test:8006/pve-01/vmbr0", "connected_to"), relations)
+        self.assertIn(("qemu/pve.example.test:8006/101", "volume/pve.example.test:8006/pve-01/local-lvm:vm-101-disk-0", "uses_storage"), relations)
         self.assertEqual(request.call_count, 2)
 
     def test_kubernetes_inventory_emits_namespaced_workloads_services_pods_and_claims(self):
