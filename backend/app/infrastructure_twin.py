@@ -7,7 +7,6 @@ from typing import Any
 
 from app import store
 
-CONTROL_PLANE_ID = "twin:carpenter-control-plane"
 ALLOWED_TYPES = {
     "control_plane", "compute_host", "hypervisor_node", "hypervisor",
     "virtual_machine", "cluster", "namespace", "workload", "service",
@@ -34,6 +33,9 @@ def resource_id(provider: str, native_id: str) -> str:
     identity = f"{provider.casefold().strip()}\0{native_id.strip()}"
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:28]
     return "twin:" + digest
+
+
+CONTROL_PLANE_ID = resource_id("carpenter", "control-plane")
 
 
 def _safe_value(value: Any, depth: int = 0) -> Any:
@@ -114,9 +116,8 @@ def observe_worker_heartbeat(inventory: dict[str, Any]) -> str:
     control_id = ensure_control_plane()
     props = {
         key: inventory.get(key) for key in (
-            "hostname", "operating_system", "architecture", "cpu_cores", "cpu_percent",
-            "memory_total_bytes", "memory_available_bytes", "disk_total_bytes",
-            "disk_free_bytes", "ipv4_addresses", "failure_domain",
+            "hostname", "operating_system", "architecture", "cpu_cores",
+            "memory_total_bytes", "disk_total_bytes", "ipv4_addresses", "failure_domain",
         ) if inventory.get(key) is not None
     }
     props["ipv4_addresses"] = [address for address in (inventory.get("ipv4_addresses") or []) if _is_private_address(str(address))][:24]
