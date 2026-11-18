@@ -29,6 +29,7 @@ class WorkerCapabilityTests(unittest.TestCase):
         with patch.dict(os.environ, values, clear=True):
             capabilities = installed_capabilities()
         self.assertEqual(capabilities["compute.proxmox_deploy"], "1.0.0")
+        self.assertEqual(capabilities["discovery.proxmox_inventory"], "1.0.0")
 
     def test_kubernetes_and_gamgee_are_independent_worker_capabilities(self):
         with patch.dict(os.environ, {
@@ -37,6 +38,7 @@ class WorkerCapabilityTests(unittest.TestCase):
         }, clear=True):
             capabilities = installed_capabilities()
         self.assertEqual(capabilities["platform.kubernetes_deploy"], "1.0.0")
+        self.assertEqual(capabilities["discovery.kubernetes_inventory"], "1.0.0")
         self.assertNotIn("gamgee.bootstrap", capabilities)
 
         with patch.dict(os.environ, {
