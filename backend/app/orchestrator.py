@@ -264,7 +264,7 @@ class CarpenterOrchestrator:
             )
 
         # Automatically queue detailed read-only discovery for any newly online node.
-        self._queue_new_node_discovery(state, agents)
+        self._queue_new_node_discovery(session_id, state, agents)
 
         if phase in ("connect", "await_vm_count"):
             if not state.get("vm_count"):
