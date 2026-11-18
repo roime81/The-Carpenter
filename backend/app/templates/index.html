@@ -44,6 +44,7 @@
         </div>
         <div class="canvas-actions">
           <span class="stream-counter" id="stream-counter">0 NODES</span>
+          {% if can_prompt %}<button type="button" class="tool-button" id="refresh-topology" data-csrf="{{ csrf_token }}">Refresh topology</button>{% endif %}
           <button type="button" class="tool-button" id="fit-canvas">Fit network</button>
           <button type="button" class="tool-button" id="toggle-labels" aria-pressed="true">Labels on</button>
         </div>
