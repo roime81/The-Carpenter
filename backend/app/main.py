@@ -37,6 +37,7 @@ from app.iac_engine import validate_iac_bundle
 from app.web_auth import COOKIE_NAME, SESSION_TTL_SECONDS, issue_session, read_session, verify_csrf
 from app.operations_engine import assess_high_availability, recommend_action, build_failover_plan, load_balancer_plan
 from app.canvas_runtime import build_canvas_snapshot, get_canvas_artifact
+from app import infrastructure_twin
 
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(
@@ -322,7 +323,14 @@ def agent_heartbeat(
     x_agent_token: str = Header(default="", alias="X-Agent-Token"),
 ) -> dict[str, object]:
     _require_agent(x_agent_token)
-    store.upsert_agent(heartbeat.model_dump(mode="json"))
+    inventory = heartbeat.model_dump(mode="json")
+    store.upsert_agent(inventory)
+    try:
+        infrastructure_twin.observe_worker_heartbeat(store.get_agent(heartbeat.node_id) or inventory)
+    except Exception as exc:
+        store.record_event("twin.observation.failed", heartbeat.node_id, {
+            "source": "agent_heartbeat", "error_type": type(exc).__name__,
+        })
     return {"accepted": True, "node_id": heartbeat.node_id}
 
 
@@ -403,6 +411,12 @@ def worker_complete(
         raise HTTPException(status_code=409, detail="Job lease is invalid or expired.")
     if job and job["function_name"].startswith("discovery."):
         store.merge_agent_discovery(worker_id, job["function_name"], request.result)
+        try:
+            infrastructure_twin.observe_discovery_result(worker_id, job["function_name"], request.result)
+        except Exception as exc:
+            store.record_event("twin.observation.failed", worker_id, {
+                "source": job["function_name"], "error_type": type(exc).__name__,
+            })
     payload = (job or {}).get("payload", {})
     store.record_event("faas.job.succeeded", job_id, {
         "worker_id": worker_id,
@@ -414,6 +428,16 @@ def worker_complete(
     })
     if payload.get("deployment_id"):
         reconcile_deployment_status(payload["deployment_id"])
+    if job and not str(job.get("function_name", "")).startswith("discovery."):
+        try:
+            infrastructure_twin.observe_provider_result(
+                {**job, "worker_id": worker_id}, request.result
+            )
+        except Exception as exc:
+            store.record_event("twin.observation.failed", job_id, {
+                "source": job.get("function_name"), "error_type": type(exc).__name__,
+                "deployment_id": payload.get("deployment_id"),
+            })
     return {"accepted": True}
 
 
@@ -788,6 +812,34 @@ def canvas_artifact(kind: str, request: Request) -> dict[str, Any]:
     if not artifact:
         raise HTTPException(status_code=404, detail="The requested canvas artifact is not available in this session.")
     return artifact
+
+
+
+
+@app.get("/api/v1/twin/snapshot")
+def digital_twin_snapshot(request: Request) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    return infrastructure_twin.list_twin_snapshot()
+
+
+@app.get("/api/v1/twin/resources/{resource_id}/history")
+def digital_twin_resource_history(
+    resource_id: str,
+    request: Request,
+    limit: int = 100,
+) -> dict[str, Any]:
+    identity = _web_identity(request)
+    if not identity:
+        raise HTTPException(status_code=401, detail="An authenticated Carpenter session is required.")
+    resource = store.get_twin_resource(resource_id)
+    if not resource:
+        raise HTTPException(status_code=404, detail="Digital-twin resource not found.")
+    return {
+        "resource": resource,
+        "observations": store.list_twin_observations(resource_id, limit),
+    }
 
 
 @app.get("/api/v1/canvas/stream")
