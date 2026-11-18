@@ -69,7 +69,10 @@ class WorkerCapabilityTests(unittest.TestCase):
             item["spec"] for item in bundle["resources"]
             if item["provider"] == "kubernetes"
         ]
-        with patch("handlers._kubernetes_apply", side_effect=[{"kind": "Deployment"}, {"kind": "Service"}]) as apply:
+        with patch.dict(os.environ, {
+            "CARPENTER_KUBERNETES_API_URL": "https://kube.example.test:6443",
+            "CARPENTER_KUBERNETES_TOKEN": "worker-token",
+        }, clear=True), patch("handlers._kubernetes_apply", side_effect=[{"kind": "Deployment"}, {"kind": "Service"}]) as apply:
             result = kubernetes_deploy({
                 "deployment_id": bundle["deployment_id"],
                 "iac_fingerprint": bundle["fingerprint"],
