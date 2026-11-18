@@ -205,3 +205,13 @@ body.dialog-open{overflow:hidden}
 .edge-connected_to,.edge-has_interface{stroke:#7d9fbe;stroke-width:1.35;opacity:.78}
 .edge-contains,.edge-routes_to,.edge-runs_hypervisor,.edge-provides_runtime{stroke:#6b9c8d;stroke-width:1.55;opacity:.82}
 .edge-control_plane,.edge-worker_host{stroke:#5686af;stroke-width:2;opacity:.9}
+
+
+/* Digital Twin graph view controls */
+.toolbar-left{display:flex;align-items:center;gap:20px;min-width:0}
+.graph-filters{display:flex;align-items:center;gap:3px;padding:3px;border:1px solid #e3eaf1;border-radius:8px;background:rgba(244,248,251,.9)}
+.graph-filter{border:0;border-radius:6px;padding:5px 9px;background:transparent;color:#73849a;font-size:8px;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.graph-filter:hover{color:#3d5f81;background:rgba(255,255,255,.8)}
+.graph-filter.active{background:#fff;color:#315f8d;box-shadow:0 1px 4px rgba(45,74,103,.12);font-weight:650}
+@media(max-width:900px){.toolbar-left{gap:10px}.graph-filters{flex:0 0 auto}}
+@media(max-width:650px){.canvas-toolbar{height:auto;min-height:47px;align-items:flex-start;padding:9px;gap:9px;flex-direction:column}.toolbar-left{width:100%;align-items:flex-start;flex-direction:column}.graph-filters{width:100%;justify-content:space-between}.canvas-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}.graph-filter{flex:1;text-align:center}}
