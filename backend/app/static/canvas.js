@@ -46,7 +46,7 @@
   };
   const statusText = {
     idle:"DORMANT", ready:"READY", online:"ONLINE", observed:"OBSERVED", waiting:"WAITING", queued:"QUEUED",
-    running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", ready:"READY", reachable:"REACHABLE",
+    running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", reachable:"REACHABLE",
     applied:"APPLIED", mounted:"MOUNTED", available:"AVAILABLE", up:"UP", down:"DOWN", offline:"OFFLINE", failed:"FAILED"
   };
   const statusClass = value => ({
