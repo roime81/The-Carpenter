@@ -264,7 +264,7 @@ def proxmox_deploy(payload: dict[str, Any]) -> dict[str, Any]:
         "source_provider": "carpenter-agent",
         "source_native_id": str(payload.get("worker_id") or ""),
         "target_provider": "proxmox",
-        "target_native_id": f"nodes/{node}",
+        "target_native_id": f"nodes/{endpoint}/{node}",
         "relation": "manages",
     }] if payload.get("worker_id") else []
     encoded_node = urllib.parse.quote(node, safe="")
@@ -614,14 +614,14 @@ def proxmox_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             vmid = str(item.get("vmid") or item.get("id", "").split("/")[-1])
             if not vmid:
                 continue
-            native = f"{kind}/{vmid}"
+            native = f"{kind}/{endpoint}/{vmid}"
             resource("proxmox", "virtual_machine", native,
                      str(item.get("name") or vmid), str(item.get("status") or "observed"), {
                          key: item.get(key) for key in ("vmid", "cpu", "maxcpu", "mem", "maxmem", "disk", "maxdisk", "uptime")
                          if item.get(key) is not None
                      })
             observed_relationships.append({
-                "source_provider": "proxmox", "source_native_id": f"nodes/{node}",
+                "source_provider": "proxmox", "source_native_id": f"nodes/{endpoint}/{node}",
                 "target_provider": "proxmox", "target_native_id": native,
                 "relation": "hosts",
             })
