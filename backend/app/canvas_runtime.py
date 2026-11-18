@@ -5,6 +5,7 @@ from typing import Any
 
 from app import store
 from app.deployment_store import reconcile_status
+from app import infrastructure_twin
 
 
 def _clean(value: Any, limit: int = 700) -> str:
@@ -156,6 +157,10 @@ def _event_message(event: dict[str, Any]) -> str:
         return f"{function or 'Work'} queued for execution"
     if event_type.startswith("deployment.status."):
         return f"Deployment status changed to {event_type.rsplit('.', 1)[-1]}"
+    if event_type.startswith("twin.resource."):
+        return f"Digital twin {event_type.rsplit('.', 1)[-1]} · {detail.get('resource_type', 'resource')} · {detail.get('name', event.get('subject_id'))} · {detail.get('status', 'observed')}"
+    if event_type.startswith("twin.relationship."):
+        return f"Topology relationship observed · {detail.get('relation', 'related_to')} · {event.get('subject_id')}"
     return _clean(event_type.replace(".", " "), 180)
 
 
@@ -180,6 +185,7 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
             or event.get("detail", {}).get("deployment_id") == deployment_id
         ))
         or event.get("subject_id") in job_ids
+        or str(event.get("event_type", "")).startswith("twin.")
     ]
     events.sort(key=lambda item: item.get("created_at", ""))
 
@@ -331,6 +337,48 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
                  started_at=next((item.get("at") for item in record["logs"] if item.get("event_type") == "faas.job.claimed"), None),
                  completed_at=max((item.get("at") for item in record["logs"] if item.get("event_type") == "faas.job.succeeded"), default=None))
 
+    # The infrastructure topology is installation-wide shared observed state.
+    # Workflow jobs remain scoped to this signed-in conversation.
+    digital_twin = infrastructure_twin.list_twin_snapshot(500)
+    for resource in digital_twin["resources"]:
+        rid = resource["resource_id"]
+        history = store.list_twin_observations(rid, 20)
+        logs = [{
+            "at": item.get("observed_at"),
+            "event_type": "twin.resource." + str(item.get("change_type", "observed")),
+            "message": f"{item.get('change_type', 'observed').title()} · {resource.get('resource_type')} · {item.get('status')}",
+        } for item in history]
+        add_node(
+            rid, resource.get("name") or resource.get("native_id"), "topology",
+            resource.get("status", "observed"),
+            description=f"{resource.get('resource_type')} · {resource.get('provider')} · {resource.get('native_id')}",
+            resource_type=resource.get("resource_type"),
+            provider=resource.get("provider"),
+            native_id=resource.get("native_id"),
+            worker_id=resource.get("worker_id"),
+            deployment_id=resource.get("deployment_id"),
+            properties=resource.get("properties", {}),
+            version=resource.get("version", 1),
+            source=resource.get("source"),
+            created_at=resource.get("first_seen"),
+            updated_at=resource.get("last_seen"),
+            logs=logs,
+            resource_id=rid,
+        )
+    for relation in digital_twin["relationships"]:
+        edges.append({
+            "source": relation["source_resource_id"],
+            "target": relation["target_resource_id"],
+            "kind": relation["relation"],
+        })
+    control_id = infrastructure_twin.CONTROL_PLANE_ID
+    if control_id in {item["id"] for item in nodes}:
+        link("stage:root", control_id, "control_plane")
+    for worker_id in worker_nodes:
+        host_id = infrastructure_twin.resource_id("carpenter-agent", worker_id)
+        if host_id in {item["id"] for item in nodes}:
+            link(f"worker:{worker_id}", host_id, "worker_host")
+
     safe_events = [{
         "event_id": event.get("event_id"), "event_type": event.get("event_type"),
         "subject_id": event.get("subject_id"), "created_at": event.get("created_at"),
@@ -340,6 +388,12 @@ def build_canvas_snapshot(session_id: str) -> dict[str, Any]:
         "deployment_id": deployment_id,
         "deployment_status": (deployment or {}).get("status"),
         "nodes": nodes, "edges": edges, "events": safe_events,
+        "digital_twin": {
+            "resource_count": digital_twin["resource_count"],
+            "relationship_count": digital_twin["relationship_count"],
+            "updated_at": digital_twin["updated_at"],
+            "counts_by_type": {kind: sum(1 for item in digital_twin["resources"] if item["resource_type"] == kind) for kind in sorted({item["resource_type"] for item in digital_twin["resources"]})},
+        },
         "artifacts": [
             {"kind": kind, "title": item.get("title"), "filename": item.get("filename"),
              "generated_at": item.get("generated_at")}
