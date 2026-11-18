@@ -817,6 +817,7 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                     })
 
     services = list_items(f"/api/v1/namespaces/{encoded_namespace}/services")
+    services_for_pods: list[tuple[str, dict[str, Any]]] = []
     for item in services[:300]:
         metadata = item.get("metadata") or {}
         spec = item.get("spec") or {}
@@ -862,14 +863,8 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
                     "relation": "exposes",
                 })
         selector = spec.get("selector") or {}
-        for workload in workloads:
-            labels = workload.get("selector") or {}
-            if selector and all(labels.get(key) == value for key, value in selector.items()):
-                observed_relationships.append({
-                    "source_provider": "kubernetes", "source_native_id": native,
-                    "target_provider": "kubernetes", "target_native_id": workload["native_id"],
-                    "relation": "routes_to",
-                })
+        if selector:
+            services_for_pods.append((native, selector))
 
     claims: list[tuple[str, str]] = []
     for item in list_items(f"/api/v1/namespaces/{encoded_namespace}/persistentvolumeclaims")[:300]:
@@ -937,6 +932,14 @@ def kubernetes_inventory(payload: dict[str, Any]) -> dict[str, Any]:
             continue
         native = f"pods/{endpoint}/{namespace}/{name}"
         phase = str(status.get("phase") or "Unknown").casefold()
+        pod_labels = metadata.get("labels") or {}
+        for service_native, selector in services_for_pods:
+            if selector and all(pod_labels.get(key) == value for key, value in selector.items()):
+                observed_relationships.append({
+                    "source_provider": "kubernetes", "source_native_id": service_native,
+                    "target_provider": "kubernetes", "target_native_id": native,
+                    "relation": "routes_to",
+                })
         observed_resources.append({
             "provider": "kubernetes", "resource_type": "workload_instance",
             "native_id": native, "name": name, "status": phase,
