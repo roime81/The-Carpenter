@@ -210,9 +210,17 @@ def _observe_storage_network(worker_id: str, host_id: str, result: dict[str, Any
 
 def observe_discovery_result(
     worker_id: str, function_name: str, result: dict[str, Any],
+    job: dict[str, Any] | None = None,
 ) -> None:
     inventory = store.get_agent(worker_id) or {"node_id": worker_id, "hostname": worker_id}
     observe_worker_heartbeat(inventory)
+    if result.get("observed_resources"):
+        scope = (job or {}).get("payload", {})
+        _observe_canonical_resources({
+            "function_name": function_name,
+            "worker_id": worker_id,
+            "payload": {"session_id": scope.get("session_id")},
+        }, result, function_name)
 
 
 def _observe_canonical_resources(
