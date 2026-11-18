@@ -45,12 +45,13 @@
     "stage:verified": [155, 245]
   };
   const statusText = {
-    idle:"DORMANT", ready:"READY", waiting:"WAITING", queued:"QUEUED",
-    running:"RUNNING", succeeded:"SUCCEEDED", failed:"FAILED"
+    idle:"DORMANT", ready:"READY", online:"ONLINE", observed:"OBSERVED", waiting:"WAITING", queued:"QUEUED",
+    running:"RUNNING", started:"STARTED", succeeded:"SUCCEEDED", ready:"READY", reachable:"REACHABLE",
+    applied:"APPLIED", mounted:"MOUNTED", available:"AVAILABLE", up:"UP", down:"DOWN", offline:"OFFLINE", failed:"FAILED"
   };
   const statusClass = value => ({
-    idle:"idle", ready:"ready", waiting:"waiting", queued:"queued",
-    running:"active", succeeded:"done", failed:"blocked"
+    idle:"idle", down:"idle", offline:"idle", ready:"ready", online:"ready", waiting:"waiting", observed:"waiting", queued:"queued",
+    running:"active", reachable:"active", mounted:"active", succeeded:"done", started:"done", applied:"queued", available:"done", up:"ready", failed:"blocked"
   }[value] || "waiting");
   const fmtTime = value => {
     if (!value) return "—";
@@ -75,6 +76,10 @@
     if (node.kind === "artifact") return 8;
     if (node.kind === "stage") return 7.5;
     if (node.kind === "worker") return Math.min(9,5+Math.log2((node.job_count||1)+1));
+    if (node.kind === "topology") {
+      const sizes={control_plane:13,cluster:11,compute_host:10,hypervisor_node:9,virtual_machine:8,workload:8,service:7,network:6.5,network_interface:5.5,storage_volume:6,hypervisor:7,container_runtime:5.8,namespace:5.5};
+      return sizes[node.resource_type]||6;
+    }
     if (node.kind === "resource") return 4.8;
     return 4.2;
   };
@@ -170,6 +175,7 @@
     computePositions();
     meshLayer.replaceChildren();edgesLayer.replaceChildren();nodesLayer.replaceChildren();
     const nodes=snapshot.nodes||[],byId=new Map(nodes.map(node=>[node.id,node]));
+    const topologyCount=nodes.filter(node=>node.kind==="topology").length;
     const explicit=new Set();
     (snapshot.edges||[]).forEach(edge=>{
       const key=[edge.source,edge.target].sort().join("|");explicit.add(key);
@@ -199,12 +205,13 @@
     nodes.forEach(node=>{
       const p=positions.get(node.id);if(!p)return;
       const state=statusClass(node.status),radius=nodeRadius(node);
-      const g=make("g",{class:"graph-node status-"+state+(node.id===selectedId?" selected":""),tabindex:"0",role:"button","aria-label":nodeName(node)+", "+(statusText[node.status]||node.status||"unknown"),"data-node":node.id},nodesLayer);
+      const resourceClass=node.resource_type?" resource-"+String(node.resource_type).replace(/[^a-z0-9_-]/gi,"-"):"";
+      const g=make("g",{class:"graph-node status-"+state+resourceClass+(node.id===selectedId?" selected":""),tabindex:"0",role:"button","aria-label":nodeName(node)+", "+(statusText[node.status]||node.status||"unknown"),"data-node":node.id},nodesLayer);
       const title=make("title",{},g);title.textContent=nodeName(node)+" · "+(statusText[node.status]||node.status||"unknown")+(node.worker_id?" · "+node.worker_id:"");
       if(node.status==="running")make("circle",{cx:p.x,cy:p.y,r:radius+7,class:"node-pulse"},g);
       make("circle",{cx:p.x,cy:p.y,r:radius+4,class:"node-halo"},g);
       make("circle",{cx:p.x,cy:p.y,r:radius,class:"node-core"},g);
-      if(labelsVisible && (node.kind==="launcher"||node.kind==="stage"||node.kind==="artifact"||node.id===selectedId)) {
+      if(labelsVisible && (node.kind==="launcher"||node.kind==="stage"||node.kind==="artifact"||node.id===selectedId||(node.kind==="topology"&&topologyCount<=45&&["control_plane","cluster","compute_host","hypervisor_node","virtual_machine","workload","service","network","storage_volume"].includes(node.resource_type)))) {
         const onLeft=p.x>850,tx=p.x+(onLeft?-13:13),anchor=onLeft?"end":"start";
         const label=make("text",{x:tx,y:p.y-radius-7,"text-anchor":anchor,class:"node-label"},g);label.textContent=nodeName(node);
         if(node.kind==="worker"||node.kind==="job"||node.kind==="resource") label.style.fontSize="8px";
@@ -241,12 +248,23 @@
     addFact("NODE TYPE",node.kind);
     addFact("STATUS",statusText[node.status]||node.status);
     if(node.function_name)addFact("FUNCTION",node.function_name+"@"+(node.function_version||"?"));
+    if(node.resource_type)addFact("RESOURCE TYPE",node.resource_type);
+    if(node.provider)addFact("PROVIDER",node.provider);
+    if(node.native_id)addFact("NATIVE ID",node.native_id);
+    if(node.version!==undefined&&node.kind==="topology")addFact("OBSERVATION VERSION",String(node.version));
+    if(node.deployment_id)addFact("DEPLOYMENT",shortId(node.deployment_id));
     if(node.worker_id)addFact("WORKER",node.worker_id);
     if(node.job_id)addFact("JOB ID",shortId(node.job_id));
     if(node.attempt!==undefined)addFact("ATTEMPT",node.attempt+"/"+node.max_attempts);
     if(node.job_count!==undefined)addFact("LINKED JOBS",String(node.job_count));
     if(node.resource_id)addFact("RESOURCE",node.resource_id);
     if(node.capabilities?.length)addFact("CAPABILITIES",node.capabilities.join(", "));
+    if(node.properties&&typeof node.properties==="object"){
+      Object.entries(node.properties).slice(0,12).forEach(([key,value])=>{
+        if(value===null||value===undefined||typeof value==="object")return;
+        addFact(key.replace(/_/g," ").toUpperCase(),String(value));
+      });
+    }
     timestamps.replaceChildren();
     [["CREATED",node.created_at],["STARTED",node.started_at],["UPDATED",node.updated_at],["COMPLETED",node.completed_at]].forEach(([label,value])=>{
       if(!value)return;const row=document.createElement("div"),k=document.createElement("span"),v=document.createElement("time");
@@ -294,15 +312,18 @@
     if(name&&snapshot.deployment_id)name.textContent="Deployment "+shortId(snapshot.deployment_id);
   }
   function renderUpdated() {
-    const nodeCount=(snapshot.nodes||[]).length;
     const updated=document.getElementById("graph-updated");
-    if(updated)updated.textContent=snapshot.updated_at?"LAST EVENT · "+fmtTime(snapshot.updated_at):"LIVE EVENT STREAM · SESSION SCOPED";
+    const twin=snapshot.digital_twin||{};
+    if(updated)updated.textContent=(twin.resource_count||0)+" OBSERVED RESOURCES · "+(twin.relationship_count||0)+" RELATIONSHIPS";
   }
+  let previousNodeIds = new Set();
   function acceptSnapshot(next) {
     if(!next||!Array.isArray(next.nodes))return;
+    const nextIds=new Set(next.nodes.map(node=>node.id));
+    const graphChanged=nextIds.size!==previousNodeIds.size||[...nextIds].some(id=>!previousNodeIds.has(id));
     snapshot=next;
-    const had=positions.size>0;
-    if(had) fitted=false;
+    if(graphChanged) fitted=false;
+    previousNodeIds=nextIds;
     render();renderEvents();renderArtifacts();renderUpdated();
     setLive("LIVE · WORKER EVENTS SYNCED",true);
   }
