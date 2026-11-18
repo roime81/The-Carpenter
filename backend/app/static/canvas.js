@@ -299,6 +299,7 @@
     if(node.job_id)addFact("JOB ID",shortId(node.job_id));
     if(node.attempt!==undefined)addFact("ATTEMPT",node.attempt+"/"+node.max_attempts);
     if(node.job_count!==undefined)addFact("LINKED JOBS",String(node.job_count));
+    if(node.inventory_complete===false)addFact("INVENTORY","PARTIAL · "+(node.inventory_warning_count||0)+" warning(s)");
     if(node.resource_id)addFact("RESOURCE",node.resource_id);
     if(node.capabilities?.length)addFact("CAPABILITIES",node.capabilities.join(", "));
     if(node.properties&&typeof node.properties==="object"){
