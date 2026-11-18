@@ -384,6 +384,28 @@
     toggleLabels.setAttribute("aria-pressed",String(labelsVisible));render();
   });
   document.getElementById("fit-canvas")?.addEventListener("click",()=>{fitted=false;fitNetwork();});
+  const refreshButton=document.getElementById("refresh-topology");
+  refreshButton?.addEventListener("click",async()=>{
+    refreshButton.disabled=true;
+    const original=refreshButton.textContent;
+    refreshButton.textContent="Discovering…";
+    try{
+      const response=await fetch("/api/v1/twin/refresh",{
+        method:"POST",credentials:"same-origin",
+        headers:{"X-CSRF-Token":refreshButton.dataset.csrf||"","Accept":"application/json"}
+      });
+      const payload=await response.json();
+      if(!response.ok)throw new Error(payload.detail||"Topology refresh could not be started.");
+      setLive(payload.job_count?("DISCOVERY QUEUED · "+payload.job_count+" WORKER JOBS"):"NO ELIGIBLE WORKERS",true);
+      refreshButton.textContent=payload.job_count?"Refresh queued":"Try again";
+    }catch(error){
+      setLive(error.message||"TOPOLOGY REFRESH FAILED",false);
+      refreshButton.textContent="Refresh failed";
+    }finally{
+      refreshButton.disabled=false;
+      window.setTimeout(()=>{refreshButton.textContent=original;},3500);
+    }
+  });
   const form=document.getElementById("prompt-form");
   form?.addEventListener("submit",()=>{
     const button=form.querySelector("button");
