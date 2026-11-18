@@ -32,6 +32,7 @@ The experience is intentionally prompt-first. The agent owns the infrastructure 
 - [Tests](#tests)
 - [Security and production readiness](#security-and-production-readiness)
 - [Technical documentation](#technical-documentation)
+- [Infrastructure Digital Twin guide](docs/INFRASTRUCTURE_DIGITAL_TWIN.md)
 
 ---
 
@@ -538,6 +539,7 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Distributed FaaS](docs/DISTRIBUTED-FAAS.md)
 - [Infrastructure Discovery](docs/DISCOVERY.md)
+- [Infrastructure Digital Twin](docs/INFRASTRUCTURE_DIGITAL_TWIN.md)
 - [Resource Engine](docs/RESOURCE-ENGINE.md)
 - [Dual Cloud Deployment](docs/DEPLOYMENT.md)
 - [Autonomous Operations](docs/OPERATIONS.md)
@@ -554,8 +556,10 @@ Read [docs/SECURITY.md](docs/SECURITY.md) before connecting real infrastructure.
 │   ├── adapters/              # Provider adapter references
 │   ├── runtime/               # Local Python function runtime
 │   ├── main.py                # Python control-plane API and chat action routing
+│   ├── infrastructure_twin.py # Typed observed-resource inventory and relationship model
+│   ├── canvas_runtime.py      # Live graph projection and artifact previews
 │   ├── web_auth.py             # Signed browser sessions, role credentials and CSRF validation
-│   ├── store.py               # Queue, worker, inventory and deployment store
+│   ├── store.py               # Queue, worker, inventory, deployment and twin persistence
 │   ├── iac_engine.py          # Deterministic desired-state to IaC compiler
 │   ├── deployment_engine.py   # AI plan and distributed apply coordinator
 │   ├── resource_engine.py     # Placement and forecasting
