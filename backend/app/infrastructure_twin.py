@@ -232,6 +232,7 @@ def _observe_canonical_resources(
     resources = result.get("observed_resources") or []
     if not isinstance(resources, list):
         return []
+    managed_node = str(result.get("managed_node") or result.get("node") or "")
     for item in resources[:200]:
         if not isinstance(item, dict):
             continue
@@ -247,7 +248,13 @@ def _observe_canonical_resources(
             worker_id=worker_id or None, deployment_id=deployment_id or None,
         )
         created[(provider, native_id)] = rid
-        if provider == "proxmox" and resource_type == "hypervisor_node" and worker_id:
+        if (
+            provider == "proxmox"
+            and resource_type == "hypervisor_node"
+            and worker_id
+            and managed_node
+            and str((item.get("properties") or {}).get("node") or "") == managed_node
+        ):
             agent_id = resource_id("carpenter-agent", worker_id)
             if store.get_twin_resource(agent_id):
                 _link(agent_id, rid, "manages", source)
